@@ -1,0 +1,19 @@
+ECHO is on.
+/models/ 
+/benchmarks/ 
+/inv_tests/ 
+__pycache__/ 
+/venv/ 
+/.venv/ 
+/env/ 
+*.pyc 
+*.pyo 
+*.pyd 
+.DS_Store 
+Thumbs.db 
+*.log 
+*.tmp 
+*.temp 
+*.bak 
+.env 
+*.key
