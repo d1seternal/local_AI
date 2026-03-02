@@ -17,3 +17,10 @@ Thumbs.db
 *.bak 
 .env 
 *.key
+chroma_db/
+rag_data/
+*.bin
+*.safetensors
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
