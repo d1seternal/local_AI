@@ -8,7 +8,7 @@
 ## Requirements.txt (текущие в проекте):
 conda==26.1.1<br>cmake==3.29.5-msvc4<br>llama-cpp-python==0.3.16<br>torch==2.10.0<br>chromadb==1.5.2<br>sentence-transformers==5.2.3<br>PyPDF2==3.0.1<br>python-docx==1.2.0<br>python==3.11.4
 ## Структура проекта:
-
+```mermaid
 graph TD
     subgraph "local_AI"
         A[requirements.txt]
