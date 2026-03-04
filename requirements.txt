@@ -1,0 +1,9 @@
+conda==26.1.1
+cmake==3.29.5-msvc4
+llama-cpp-python==0.3.16
+torch==2.10.0
+chromadb==1.5.2
+sentence-transformers==5.2.3
+PyPDF2==3.0.1
+python-docx==1.2.0
+python==3.11.4
