@@ -20,8 +20,7 @@ graph TD
             
             subgraph B2[block2]
                 B2F1[memory.py]
-                B2F2[rag.py]
-                B2F3[main_llm_rag.py]
+                B2F2[main_llm_rag.py]
             end
             
             subgraph B3[block3]
