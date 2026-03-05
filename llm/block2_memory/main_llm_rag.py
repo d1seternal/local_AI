@@ -5,18 +5,19 @@
 
 import os
 import time
+from typing import Dict, Optional
 import psutil
 import json
 from datetime import datetime
 from llama_cpp import Llama
 
-from memory import VectorMemory
-from rag import RAGSystem
+from memory import VectorMemory  
 
-RAG_PATH = ".\\rag_data"
-MODEL_PATH = ".\models\mistral-7b-instruct-v0.2.Q4_K_M.gguf"
-MEMORY_PATH = ".\chroma_db"
-COLLECTION_NAME = "rag_memory"
+
+MODEL_PATH = "./models/Phi-3-mini-4k-instruct-q4.gguf"
+MEMORY_PATH = "./rag_data"
+MEMORY_COLLECTION = "conversations"  
+DOCS_COLLECTION = "documents"     
 
 class ModelBenchmark:
     
@@ -78,24 +79,11 @@ class ModelBenchmark:
             'peak_ram_mb': self.metrics['memory']['peak'].get('ram_mb', 0)
         }
     
-    def print_summary(self):
-        print("\n")
-        print(" ИТОГОВЫЙ ОТЧЕТ БЕНЧМАРКИНГА")
-        
-        print(f"\nМодель: {self.metrics['model_name']}")
-        print(f"Время загрузки: {self.metrics['load_time']:.2f} сек")
-        print(f"Всего запросов: {self.metrics['total_queries']}")
-        print(f"Всего токенов: {self.metrics['total_tokens']}")
-        print(f"Общее время генерации: {self.metrics['total_time']:.2f} сек")
-        
-        if self.metrics['total_tokens'] > 0:
-            avg_speed = self.metrics['total_tokens'] / self.metrics['total_time']
-            print(f"Средняя скорость: {avg_speed:.2f} токенов/сек")
-    
 
-def index_documents_interactive(rag):
+
+def index_documents_interactive(memory):
     while True:
-        print("\n1. Индексировать файл")
+        print("1. Индексировать файл")
         print("2. Индексировать текст")
         print("3. Показать список документов")
         print("4. Удалить документ")
@@ -106,8 +94,11 @@ def index_documents_interactive(rag):
         if choice == '1':
             file_path = input("Путь к файлу: ").strip()
             if os.path.exists(file_path):
-                chunks = rag.index_document(file_path)
-                print(f"Добавлено {chunks} чанков")
+                try:
+                    chunks = memory.index_document(file_path)
+                    print(f"Добавлено {chunks} чанков")
+                except Exception as e:
+                    print(f"Ошибка: {e}")
             else:
                 print("Файл не найден")
         
@@ -120,22 +111,23 @@ def index_documents_interactive(rag):
                     break
                 lines.append(line)
             
-            text = "\n".join(lines)
-            source = input("Название источника: ").strip() or "user_input"
-            chunks = rag.index_text(text, source=source)
-            print(f"Добавлено {chunks} чанков")
+            if lines:
+                text = "\n".join(lines)
+                source = input("Название источника: ").strip() or "user_input"
+                chunks = memory.index_text(text, source=source)
+                print(f"Добавлено {chunks} чанков")
         
         elif choice == '3':
-            docs = rag.list_documents()
+            docs = memory.list_documents()
             print(f"\nДокументов в базе: {len(docs)}")
             for doc in docs:
                 from datetime import datetime
                 dt = datetime.fromtimestamp(doc['timestamp'])
-                print(f"  {doc['doc_id']}: {doc['filename']} - {doc['chunks']} чанков ")
+                print(f" {doc['filename']}: {doc['chunks']} чанков")
         
         elif choice == '4':
             doc_id = input("ID документа для удаления: ").strip()
-            deleted = rag.delete_document(doc_id)
+            deleted = memory.delete_document(doc_id)
             if deleted:
                 print(f"Удалено {deleted} чанков")
             else:
@@ -143,6 +135,7 @@ def index_documents_interactive(rag):
         
         elif choice == '5':
             break
+
 
 def load_model(benchmark):
     print("Загрузка GGUF модели...")
@@ -152,14 +145,14 @@ def load_model(benchmark):
     
     llm = Llama(
         model_path=MODEL_PATH,
-        n_ctx=4096,                  
+        n_ctx=8192,                  
         n_threads=8,                   
         n_gpu_layers=0,                  
         verbose=False,                    
         seed=42,                          
-        temperature=1.0,                   
+        temperature=0.5,                   
         top_p=0.9,
-        chat_format="mistral-instruct"    #можно использовать небходимый формат для конкретной модели (например, chatml для Phi-3-mini-4k-Q4)                
+        chat_format="chatml"    # можно использовать необходимый формат для конкретной модели                
     )
     
     load_time = time.time() - start_time
@@ -173,91 +166,134 @@ def load_model(benchmark):
     print(f"Модель загружена: {os.path.basename(MODEL_PATH)}")
     print(f"Время загрузки: {load_time:.2f} сек")
     print(f"Использование памяти: {mem_after['rss']:.1f} MB")
-    print(f"Контекст: {benchmark.metrics['model_info']['n_ctx']} токенов")
     print(f"Потоков: {benchmark.metrics['model_info']['n_threads']}")
     
     return llm
 
-def generate_with_rag(llm, query_text, benchmark, memory, rag, session_id="default"):
-    doc_context = rag.get_context_for_query(query_text, k=3)
+def generate_with_memory(llm, query_text, benchmark, memory, session_id="default", doc_id=None):
+    # if doc_id:
+    #     doc_context = memory.get_document_context_by_id(
+    #         query=query_text,
+    #         doc_id=doc_id,
+    #         k=3
+    #     )
+    #     if doc_context:
+    #         prompt = f"{doc_context}\n\nВопрос: {query_text}\nОтвет:"
+    #         print(f"\nНайдена информация в документе:")
+    #     else:
+    #         prompt = f"Вопрос: {query_text}\nОтвет:"
+    #         print(f"\nНичего не найдено в документе")
     
-    chat_context = memory.get_relevant_context(
-        query=query_text,
-        k=3,
-        session_id=session_id
-    )
+    if session_id:
+        memory_context = memory.get_memory_context(
+            query=query_text,
+            k=3,
+            session_id=session_id
+        )
+        if memory_context:
+            prompt = f"{memory_context}\n\nUser: {query_text}\nAssistant:"
+        else:
+            prompt = f"User: {query_text}\nAssistant:"
     
-    parts = []
-    
-    if doc_context:
-        parts.append(doc_context)
-        print(f"\nНайдена информация из документов")
-    
-    if chat_context:
-        parts.append(chat_context)
-    
-    if parts:
-        prompt = "\n\n".join(parts) + f"\n\nUser: {query_text}\nAssistant:"
     else:
-        prompt = f"User: {query_text}\nAssistant:"
-    
-    start_time = time.time()
+        doc_context = memory.get_document_context(
+            query=query_text,
+            k=3
+        )
+        if doc_context:
+            prompt = f"{doc_context}\n\nВопрос: {query_text}\nОтвет:"
+        else:
+            prompt = f"Вопрос: {query_text}\nОтвет:"
 
+    start_time = time.time()
     response = llm(
         prompt, 
-        max_tokens=1024, 
-        temperature=1.0, 
-        top_p=0.9,
-        echo=False 
+        max_tokens=500, 
+        temperature=0.5, 
+        top_p=0.9, 
+        echo=False
     )
     time_taken = time.time() - start_time
     
     answer = response['choices'][0]['text'].strip()
-    
     token_count = response['usage']['completion_tokens']
     tokens_per_second = token_count / time_taken if time_taken > 0 else 0
+
+    if session_id and not doc_id:
+        memory.add_message("user", query_text, session_id=session_id)
+        memory.add_message("assistant", answer, session_id=session_id)
     
-    memory.add_message("user", query_text, session_id=session_id)
-    memory.add_message("assistant", answer, session_id=session_id)
     benchmark.add_query_result(query_text, answer, token_count, time_taken, tokens_per_second)
     
     return answer, token_count, time_taken, tokens_per_second
 
-def chat_loop_with_rag(llm, benchmark, memory, rag, session_id):
-    print(f"Сессия: {session_id}")
+def chat_loop_with_return(llm, benchmark, memory, session_id):
+    token_count = 0
+    MAX_TOKENS_PER_SESSION = 8192 
+    
+    print(f"\nСессия: {session_id}")
     print("\nКоманды:")
-    print("  /exit - выход")
+    print("  /exit - выход в главное меню")
+    print("  /new - начать новую сессию")
     print("  /search <запрос> - поиск по документам")
     print("  /docs - список документов")
-    print("  /memory - статистика")
+    print("  /tokens - показать использовано токенов")
+    print("  /memory - статистика памяти")
     
     while True:
+        if token_count >= MAX_TOKENS_PER_SESSION:
+            print(f"\nДостигнут лимит токенов ({MAX_TOKENS_PER_SESSION}) в этой сессии!")
+            print("1. Начать новую сессию")
+            print("2. Вернуться в главное меню")
+            print("3. Продолжить текущую сессию (не рекомендуется)")
+            
+            choice = input("Ваш выбор: ").strip()
+            if choice == '1':
+                return "new_session"
+            elif choice == '2':
+                return "menu"
+            else:
+                token_count = 0  
+                print("Продолжаем текущую сессию")
+        
         user_input = input("\nВы: ").strip()
         
+        
         if user_input.lower() in ['/exit', 'exit', 'quit']:
-            break
+            return "menu"
+        
+        if user_input.lower() == '/new':
+            return "new_session"
         
         if user_input.startswith('/search'):
             query = user_input[7:].strip()
             if query:
-                results = rag.search(query, k=5)
+                results = memory.search_documents(query, k=3)
                 print(f"\nНайдено {len(results)} результатов:")
                 for i, r in enumerate(results, 1):
-                    source = r['metadata'].get('filename', 'unknown')
+                    source = r['metadata'].get('filename', r['metadata'].get('source', 'unknown'))
                     print(f"\n{i}. [релевантность: {r['relevance_score']:.2f}, из: {source}]")
-                    print(r['text'])
+                    print(r['text'][:900])
             continue
         
         if user_input == '/docs':
-            docs = rag.list_documents()
+            docs = memory.list_documents()
             print(f"\nДокументов в базе: {len(docs)}")
             for doc in docs:
-                print(f"  {doc['filename']}: {doc['chunks']} чанков")
+                print(f"{doc['filename']}: {doc['chunks']} чанков")
+            continue
+        
+        if user_input == '/tokens':
+            print(f"\nИспользовано токенов в сессии: {token_count}")
+            print(f"Лимит: {MAX_TOKENS_PER_SESSION}")
             continue
         
         if user_input == '/memory':
-            print(f"\nДиалогов: {memory.count()}")
-            print(f"Чанков документов: {rag.count()}")
+            stats = memory.get_stats()
+            print(f"\n Статистика памяти:")
+            print(f"   Диалогов: {stats['memory_messages']}")
+            print(f"   Чанков документов: {stats['document_chunks']}")
+            print(f"   Документов: {stats['documents']}")
             continue
         
         if not user_input:
@@ -265,46 +301,69 @@ def chat_loop_with_rag(llm, benchmark, memory, rag, session_id):
 
         print("\nАссистент: ", end="", flush=True)
         try:
-            answer, tokens, time_taken, speed = generate_with_rag(
-                llm, query_text=user_input, benchmark=benchmark, memory=memory, rag=rag, session_id=session_id
+            answer, tokens, time_taken, speed = generate_with_memory(
+                llm, query_text=user_input, benchmark=benchmark, 
+                memory=memory, session_id=session_id
             )
             print(answer)
-            print(f"\n[{tokens} токенов | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
+            token_count += tokens 
+            print(f"\n[{tokens} токенов | всего: {token_count} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
         except Exception as e:
             print(f"\nОшибка: {e}")
 
-def main():
-
-    print("\nИнициализация векторной памяти...")
-    memory = VectorMemory(
-        persist_directory=MEMORY_PATH,
-        collection_name=COLLECTION_NAME,
-        embedding_model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    )
-    print(f"Память создана, папка: {MEMORY_PATH}")
-
-    rag = RAGSystem(
-        persist_directory=RAG_PATH,
-        collection_name="documents",
-        chunk_size=500,
-        chunk_overlap=50
-    )
-    
-    print(f"   Диалогов в памяти: {memory.count()}")
-    print(f"   Чанков документов: {rag.count()}")
-    
-    print("\n")
-    print(" ВЫБОР РЕЖИМА РАБОТЫ\n")
-    print("1. Чат с ассистентом")
-    print("2. Управление документами")
-    print("3. Тестовые запросы")
-
-    choice = input("\nВаш выбор: ").strip()
-    
-    if choice == '2':
-        index_documents_interactive(rag)
+def chat_session(memory):
+    chat_session.benchmark = ModelBenchmark()
+    try:
+        chat_session.llm = load_model(chat_session.benchmark)
+    except Exception as e:
+        print(f"Ошибка загрузки модели: {e}")
         return
     
+    session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+   
+    result = chat_loop_with_return(chat_session.llm, chat_session.benchmark, memory, session_id)
+    
+    if result == "menu":
+        return 
+    elif result == "new_session":
+        print("Сессия завершена. Возврат в меню.")
+        return
+
+def choose_document(memory) -> Optional[Dict]:
+    docs = memory.list_documents()
+    if not docs:
+        print("\n Пусто. Сначала загрузите документы в базу.")
+        return None
+    
+    print("\n ДОСТУПНЫЕ ДОКУМЕНТЫ\n")
+    for i, doc in enumerate(docs, 1):
+        dt = datetime.fromtimestamp(doc['timestamp'])
+        print(f"\n{i}. {doc['filename']}")
+    
+    while True:
+        try:
+            choice = input("Выберите документ (номер в списке): ").strip()
+            if choice == '0':
+                return None
+            idx = int(choice)
+            if 1<=idx<=len(docs):
+                return docs[idx-1]
+            else:
+                print(f"Введите число от 0 до {len(docs)}")
+        except ValueError:
+            print("Введите число")
+
+def chat_with_document_session(memory):
+       
+    selected_doc = choose_document(memory)
+    if selected_doc is None:
+        return
+        
+    doc_id = selected_doc['doc_id']
+    filename = selected_doc['filename']
+        
+    print(f"\n Поиск по документу '{filename}'")
+   
     benchmark = ModelBenchmark()
     try:
         llm = load_model(benchmark)
@@ -312,26 +371,113 @@ def main():
         print(f"Ошибка загрузки модели: {e}")
         return
     
-    if choice == '3':
-        test_queries = [
-        "Объясни принцип квантизации llm-моделей.",
-        "Напиши рецепт классического русского борща.",
-        "Сколько будет 15 * 37?",
-        "Что такое градиентный спуск в машинном обучении?",
-        "Опиши структуру судов в России и виды судебных разбирательств, которые расмматривает суд на каждом из уровней иерархии."
-        ]
-
-        session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    session_id = f"doc_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    token_count = 0
+    MAX_TOKENS = 4096
         
-        for query in test_queries:
-            answer, _, _, _ = generate_with_rag(
-                llm, query, benchmark, memory, rag, session_id
-            )
-            print(f"\nQ: {query}\nA: {answer[:200]}...")
-    
-    else:
-        session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        chat_loop_with_rag(llm, benchmark, memory, rag, session_id)
+    print(f"\n Сессия: {session_id}")
+    print("\nКоманды:")
+    print("  /exit - выход")
+    print("  /info - информация о документе")
+        
+    while True:
 
+        if token_count >= MAX_TOKENS:
+            print(f"\nДостигнут лимит токенов. Начинаем новую сессию.")
+            session_id = f"doc_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            token_count = 0
+            print(f"Новая сессия: {session_id}")
+            
+        user_input = input("\nВы: ").strip()
+            
+        if user_input.lower() in ['/exit', 'exit', 'quit']:
+            break
+            
+        if user_input.lower() == '/info':
+            print(f"\nИнформация о документе:")
+            print(f"   Имя: {filename}")
+            print(f"   ID: {doc_id}")
+            print(f"   Чанков: {selected_doc['chunks']}")
+            continue
+            
+        if not user_input:
+            continue
+            
+        print("\nАссистент: ", end="", flush=True)
+        try:
+            doc_context = memory.get_document_context_by_id(
+                query=user_input,
+                doc_id=doc_id,
+                k=3
+            )
+
+            if doc_context:
+                prompt = f"{doc_context}\n\nUser: {user_input}\nAssistant:"
+                print(f"\nНайдена информация в документе")
+            else:
+                prompt = f"User: {user_input}\nAssistant:"
+                print(f"\nНичего не найдено в документе")
+
+            start_time = time.time()
+            response = llm(
+                prompt, 
+                max_tokens=500, 
+                temperature=0.5, 
+                top_p=0.9, 
+                echo=False
+            )
+            time_taken = time.time() - start_time
+                
+            answer = response['choices'][0]['text'].strip()
+            tokens = response['usage']['completion_tokens']
+            token_count += tokens
+            speed = tokens / time_taken if time_taken > 0 else 0
+
+            memory.add_message("user", user_input, session_id=session_id)
+            memory.add_message("assistant", answer, session_id=session_id)
+                
+            print(answer)
+            print(f"\n[{tokens} токенов | всего: {token_count} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
+                
+        except Exception as e:
+            print(f"\nОшибка: {e}")
+
+
+def main():
+
+    print("\nИнициализация векторной памяти...")
+    memory = VectorMemory(
+        persist_directory=MEMORY_PATH,
+        memory_collection=MEMORY_COLLECTION,
+        docs_collection=DOCS_COLLECTION,
+        embedding_model="intfloat/multilingual-e5-base"
+    )
+    
+    stats = memory.get_stats()
+    print(f"   Диалогов в памяти: {stats['memory_messages']}")
+    print(f"   Документов: {stats['documents']}")
+
+    while True:
+        print("\n ВЫБОР РЕЖИМА\n")
+        print("1. Чат с ассистентом")
+        print("2. Управление документами")
+        print("3. Чат по конкретному документу")
+        print("4. Выход")
+        
+        choice = input("\nВаш выбор: ").strip()
+        
+        if choice == '1':
+            chat_session(memory) 
+        elif choice == '2':
+            index_documents_interactive(memory)
+        elif choice == '3':
+            #chat_with_document_session(memory) 
+            print("Пока в тестировании...")
+            continue
+        elif choice == '4':
+            break
+        else:
+            print("Неверный выбор. Пожалуйста, выберите от 1 до 4")
+            
 if __name__ == "__main__":
     main()
