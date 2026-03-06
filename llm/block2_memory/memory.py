@@ -99,12 +99,6 @@ class VectorMemory:
         embedding = self.embedding_model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
 
-
-    # def _get_embedding(self, text: str) -> List[float]:
-        
-    #     embedding = self.embedding_model.encode(text, normalize_embeddings=True)
-    #     return embedding.tolist()
-    
     def add_message(
         self,
         role: str,
@@ -134,56 +128,6 @@ class VectorMemory:
         )
         
         return doc_id
-    
-    # def search_in_document(
-    #     self,
-    #     query: str,
-    #     doc_id: str,
-    #     k: int = 3,
-    #     score_threshold: float = 0.5
-    # ) -> List[Dict[str, Any]]:
-    #     query_embedding = self._get_embedding(query, is_query=True)
-
-    #     results = self.docs_collection.query(
-    #         query_embeddings=[query_embedding],
-    #         n_results=k * 2,
-    #         where={"doc_id": doc_id}
-    #     )
-        
-    #     formatted = []
-    #     if results['ids'][0]:
-    #         for i in range(len(results['ids'][0])):
-    #             distance = results['distances'][0][i] if results['distances'] else 1.0
-    #             score = max(0, 1 - distance / 2)
-                
-    #             if score >= score_threshold:
-    #                 formatted.append({
-    #                     "text": results['documents'][0][i],
-    #                     "metadata": results['metadatas'][0][i],
-    #                     "relevance_score": score
-    #                 })
-        
-    #     return formatted[:k]
-
-    # def get_document_context_by_id(
-    #     self,
-    #     query: str,
-    #     doc_id: str,
-    #     k: int = 3
-    # ) -> str:
-    #     results = self.search_in_document(query, doc_id, k=k)
-        
-    #     if not results:
-    #         return ""
-
-    #     filename = results[0]['metadata'].get('filename', 'документ')
-        
-    #     lines = [f"[Информация из документа: {filename}]"]
-    #     for i, r in enumerate(results, 1):
-    #         lines.append(f"\n{i}. [релевантность: {r['relevance_score']:.2f}]")
-    #         lines.append(r['text'][:500] + "..." if len(r['text']) > 500 else r['text'])
-        
-    #     return "\n".join(lines)
     
     def search_messages(
         self,
@@ -218,44 +162,7 @@ class VectorMemory:
                     })
         
         return formatted[:k]
-    
-    def get_memory_context(
-        self,
-        query: str,
-        k: int = 3,
-        session_id: Optional[str] = None
-    ) -> str:
-    
-        results = self.search_messages(query, k=k, session_id=session_id)
-        
-        if not results:
-            return ""
-        
-        lines = ["[История диалогов:]"]
-        for msg in results:
-            role_marker = "Пользователь" if msg["role"] == "user" else "Ассистент"
-            preview = msg["text"][:200] + "..." if len(msg["text"]) > 200 else msg["text"]
-            lines.append(f"{role_marker}: {preview}")
-        
-        return "\n".join(lines)
-    
-    def get_session_messages(self, session_id: str, limit: int = 50) -> List[Dict]:
-        results = self.memory_collection.get(
-            where={"session_id": session_id},
-            limit=limit
-        )
-        
-        messages = []
-        if results['ids']:
-            for i in range(len(results['ids'])):
-                messages.append({
-                    "id": results['ids'][i],
-                    "text": results['documents'][i],
-                    "metadata": results['metadatas'][i]
-                })
-        
-        return messages
-    
+
     def _chunk_text(self, text: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         chunks = []
         words = text.split()
@@ -409,25 +316,60 @@ class VectorMemory:
         
         return formatted[:k]
     
-    def get_document_context(
-        self,
-        query: str,
-        k: int = 3
-    ) -> str:
-       
+    def get_clean_document_context(self, query: str, k: int = 2) -> str:
         results = self.search_documents(query, k=k)
         
         if not results:
             return ""
+  
+        text_parts = []
+        for r in results:
+            text = r['text'].strip()
+            if text and len(text) > 30:  
+                text_parts.append(text)
         
-        lines = ["[Информация из документов:]"]
-        for i, r in enumerate(results, 1):
-            source = r['metadata'].get('filename', r['metadata'].get('source', 'unknown'))
-            lines.append(f"\n{i}. [Из {source}, релевантность: {r['relevance_score']:.2f}]")
-            lines.append(r['text'][:500] + "..." if len(r['text']) > 500 else r['text'])
+        if text_parts:
+            return " ".join(text_parts[:2])
         
-        return "\n".join(lines)
+        return ""
     
+    def get_document_only_context(self, query: str, doc_id: str, k: int = 3) -> str:
+        query_embedding = self._get_embedding(query, is_query=True)
+
+        doc_id = str(doc_id).strip()
+        results = self.docs_collection.query(
+            query_embeddings=[query_embedding],
+            n_results=k * 2,
+            where={"doc_id": doc_id} 
+        )
+        
+        if not results['ids'][0]:
+            return ""
+
+        chunks = []
+        for i in range(len(results['ids'][0])):
+            distance = results['distances'][0][i] if results['distances'] else 1.0
+            score = max(0, 1 - distance / 2)
+            
+            if score > 0.5:  
+                chunks.append({
+                    'text': results['documents'][0][i],
+                    'score': score,
+                    'chunk_index': results['metadatas'][0][i].get('chunk_index', 0)
+                })
+        
+        if not chunks:
+            return ""
+        
+        chunks.sort(key=lambda x: x['chunk_index'])
+        text_parts = []
+        for chunk in chunks[:2]:  
+            text = chunk['text'].strip()
+            if text:
+                text_parts.append(text)
+        
+        return " ".join(text_parts)
+
     def list_documents(self) -> List[Dict[str, Any]]:
         results = self.docs_collection.get()
         

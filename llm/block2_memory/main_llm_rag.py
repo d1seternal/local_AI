@@ -145,7 +145,7 @@ def load_model(benchmark):
     
     llm = Llama(
         model_path=MODEL_PATH,
-        n_ctx=8192,                  
+        n_ctx=4096,                  
         n_threads=8,                   
         n_gpu_layers=0,                  
         verbose=False,                    
@@ -170,40 +170,25 @@ def load_model(benchmark):
     
     return llm
 
-def generate_with_memory(llm, query_text, benchmark, memory, session_id="default", doc_id=None):
-    # if doc_id:
-    #     doc_context = memory.get_document_context_by_id(
-    #         query=query_text,
-    #         doc_id=doc_id,
-    #         k=3
-    #     )
-    #     if doc_context:
-    #         prompt = f"{doc_context}\n\nВопрос: {query_text}\nОтвет:"
-    #         print(f"\nНайдена информация в документе:")
-    #     else:
-    #         prompt = f"Вопрос: {query_text}\nОтвет:"
-    #         print(f"\nНичего не найдено в документе")
-    
-    if session_id:
-        memory_context = memory.get_memory_context(
-            query=query_text,
-            k=3,
-            session_id=session_id
-        )
-        if memory_context:
-            prompt = f"{memory_context}\n\nUser: {query_text}\nAssistant:"
-        else:
-            prompt = f"User: {query_text}\nAssistant:"
-    
-    else:
-        doc_context = memory.get_document_context(
-            query=query_text,
-            k=3
-        )
+def generate_with_memory(llm, query_text, benchmark, memory, session_id="default", use_docs=True):
+    doc_texts = []
+    if use_docs:
+        doc_context = memory.get_clean_document_context(query_text, k=2)
         if doc_context:
-            prompt = f"{doc_context}\n\nВопрос: {query_text}\nОтвет:"
-        else:
-            prompt = f"Вопрос: {query_text}\nОтвет:"
+            doc_texts.append(doc_context)
+    
+    if doc_texts:
+        combined_docs = " ".join(doc_texts)
+        if len(combined_docs) > 1000:
+            combined_docs = combined_docs[:1000] + "..."
+  
+        prompt = f"""Ты - полезный ассистент. Отвечай на вопросы пользователя, используя предоставленную информацию. Дополнительную информацию по теме искать здесь: {combined_docs} 
+        Вопрос: {query_text}
+        Ответ:"""
+    else:
+        prompt = f"""Ты - полезный ассистент. Отвечай на вопросы пользователя. 
+        Вопрос: {query_text} 
+        Ответ:"""
 
     start_time = time.time()
     response = llm(
@@ -211,15 +196,18 @@ def generate_with_memory(llm, query_text, benchmark, memory, session_id="default
         max_tokens=500, 
         temperature=0.5, 
         top_p=0.9, 
-        echo=False
+        echo=False,
+        stop=["Вопрос:", "User:", "\n\n"] 
     )
     time_taken = time.time() - start_time
     
     answer = response['choices'][0]['text'].strip()
+    answer = clean_model_output(answer)
+    
     token_count = response['usage']['completion_tokens']
     tokens_per_second = token_count / time_taken if time_taken > 0 else 0
 
-    if session_id and not doc_id:
+    if session_id:
         memory.add_message("user", query_text, session_id=session_id)
         memory.add_message("assistant", answer, session_id=session_id)
     
@@ -227,9 +215,27 @@ def generate_with_memory(llm, query_text, benchmark, memory, session_id="default
     
     return answer, token_count, time_taken, tokens_per_second
 
+def clean_model_output(text: str) -> str:
+    artifacts = [
+        "Assistant:", "Ассистент:", "User:", "Пользователь:",
+        "[Информация", "Из документа", "[/Информация]",
+        "контекст:", "Дополнительная информация:", "Ответ:"
+    ]
+    
+    for artifact in artifacts:
+        if artifact in text:
+            if text.startswith(artifact):
+                text = text[len(artifact):].strip()
+  
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    text = ' '.join(lines)
+    
+    return text
+
 def chat_loop_with_return(llm, benchmark, memory, session_id):
     token_count = 0
-    MAX_TOKENS_PER_SESSION = 8192 
+    MAX_TOKENS_PER_SESSION = 4096
+    use_docs_context = True
     
     print(f"\nСессия: {session_id}")
     print("\nКоманды:")
@@ -237,7 +243,7 @@ def chat_loop_with_return(llm, benchmark, memory, session_id):
     print("  /new - начать новую сессию")
     print("  /search <запрос> - поиск по документам")
     print("  /docs - список документов")
-    print("  /tokens - показать использовано токенов")
+    print("  /tokens - показать число использованных токенов")
     print("  /memory - статистика памяти")
     
     while True:
@@ -258,7 +264,6 @@ def chat_loop_with_return(llm, benchmark, memory, session_id):
         
         user_input = input("\nВы: ").strip()
         
-        
         if user_input.lower() in ['/exit', 'exit', 'quit']:
             return "menu"
         
@@ -273,14 +278,16 @@ def chat_loop_with_return(llm, benchmark, memory, session_id):
                 for i, r in enumerate(results, 1):
                     source = r['metadata'].get('filename', r['metadata'].get('source', 'unknown'))
                     print(f"\n{i}. [релевантность: {r['relevance_score']:.2f}, из: {source}]")
-                    print(r['text'][:900])
+                    print(r['text'][:750] + "..." if len(r['text']) > 750 else r['text'])
             continue
         
         if user_input == '/docs':
             docs = memory.list_documents()
             print(f"\nДокументов в базе: {len(docs)}")
             for doc in docs:
-                print(f"{doc['filename']}: {doc['chunks']} чанков")
+                from datetime import datetime
+                dt = datetime.fromtimestamp(doc['timestamp'])
+                print(f"  {doc['filename']}: {doc['chunks']} чанков")
             continue
         
         if user_input == '/tokens':
@@ -302,17 +309,24 @@ def chat_loop_with_return(llm, benchmark, memory, session_id):
         print("\nАссистент: ", end="", flush=True)
         try:
             answer, tokens, time_taken, speed = generate_with_memory(
-                llm, query_text=user_input, benchmark=benchmark, 
-                memory=memory, session_id=session_id
+                llm, 
+                query_text=user_input, 
+                benchmark=benchmark, 
+                memory=memory, 
+                session_id=session_id,
+                use_docs=use_docs_context 
             )
             print(answer)
             token_count += tokens 
-            print(f"\n[{tokens} токенов | всего: {token_count} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
+                
+            print(f" | {tokens} токенов | всего: {token_count} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
+            
         except Exception as e:
             print(f"\nОшибка: {e}")
 
 def chat_session(memory):
     chat_session.benchmark = ModelBenchmark()
+    
     try:
         chat_session.llm = load_model(chat_session.benchmark)
     except Exception as e:
@@ -320,13 +334,12 @@ def chat_session(memory):
         return
     
     session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-   
     result = chat_loop_with_return(chat_session.llm, chat_session.benchmark, memory, session_id)
     
     if result == "menu":
         return 
     elif result == "new_session":
-        print("Сессия завершена. Возврат в меню.")
+        chat_session(memory)
         return
 
 def choose_document(memory) -> Optional[Dict]:
@@ -353,17 +366,71 @@ def choose_document(memory) -> Optional[Dict]:
         except ValueError:
             print("Введите число")
 
+def generate_with_document(llm, query_text, benchmark, memory, doc_id, session_id="default"):
+    doc_context = memory.get_document_only_context(query_text, doc_id, k=2)
+    if doc_context:
+        prompt = f"""Ты - ассистент для работы с документом. Отвечай на вопросы, используя только информацию из предоставленного документа. 
+        Содержание документа:{doc_context[:1000]}{'...' if len(doc_context) > 1000 else ''}
+        Вопрос: {query_text}
+        Ответ:"""
+    else:
+        prompt = f"""Ты - ассистент для работы с документом. Если информация отсутствует в документе, так и скажи. 
+        Вопрос: {query_text}
+        Ответ: Информация по этому вопросу отсутствует в документе."""
+
+    start_time = time.time()
+    response = llm(
+        prompt, 
+        max_tokens=300,  
+        temperature=0.5,
+        top_p=0.9, 
+        echo=False,
+        stop=["Вопрос:", "User:", "\n\n"]
+    )
+    time_taken = time.time() - start_time
+    
+    answer = response['choices'][0]['text'].strip()
+
+    answer = clean_document_output(answer)
+    
+    token_count = response['usage']['completion_tokens']
+    tokens_per_second = token_count / time_taken if time_taken > 0 else 0
+
+    if session_id:
+        memory.add_message("user", f"[Документ: {doc_id}] {query_text}", session_id=session_id)
+        memory.add_message("assistant", answer, session_id=session_id)
+    
+    benchmark.add_query_result(query_text, answer, token_count, time_taken, tokens_per_second)
+    
+    return answer, token_count, time_taken, tokens_per_second
+
+
+def clean_document_output(text: str) -> str:
+    artifacts = [
+        "Ответ:", "Assistant:", "Ассистент:",
+        "На основе документа:", "Согласно документу:",
+        "В документе сказано:", "[Документ]"
+    ]
+    
+    for artifact in artifacts:
+        if text.startswith(artifact):
+            text = text[len(artifact):].strip()
+
+    if not text or len(text) < 1:
+        return "Информация по этому вопросу отсутствует в документе."
+    
+    return text
+
 def chat_with_document_session(memory):
-       
     selected_doc = choose_document(memory)
     if selected_doc is None:
         return
         
     doc_id = selected_doc['doc_id']
     filename = selected_doc['filename']
-        
-    print(f"\n Поиск по документу '{filename}'")
-   
+    
+    print(f"\nРабота с документом: {filename}")
+    
     benchmark = ModelBenchmark()
     try:
         llm = load_model(benchmark)
@@ -374,71 +441,58 @@ def chat_with_document_session(memory):
     session_id = f"doc_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     token_count = 0
     MAX_TOKENS = 4096
-        
+    
     print(f"\n Сессия: {session_id}")
     print("\nКоманды:")
     print("  /exit - выход")
     print("  /info - информация о документе")
-        
+    print("  /clear - очистить контекст сессии")
+    
     while True:
-
         if token_count >= MAX_TOKENS:
             print(f"\nДостигнут лимит токенов. Начинаем новую сессию.")
             session_id = f"doc_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             token_count = 0
             print(f"Новая сессия: {session_id}")
-            
+        
         user_input = input("\nВы: ").strip()
-            
+
         if user_input.lower() in ['/exit', 'exit', 'quit']:
             break
-            
+        
         if user_input.lower() == '/info':
-            print(f"\nИнформация о документе:")
+            print(f"\n Информация о документе:")
             print(f"   Имя: {filename}")
             print(f"   ID: {doc_id}")
             print(f"   Чанков: {selected_doc['chunks']}")
             continue
-            
+        
+        if user_input.lower() == '/clear':
+            session_id = f"doc_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            token_count = 0
+            print("Контекст сессии очищен")
+            continue
+        
         if not user_input:
             continue
-            
+        
         print("\nАссистент: ", end="", flush=True)
+        
         try:
-            doc_context = memory.get_document_context_by_id(
-                query=user_input,
+            answer, tokens, time_taken, speed = generate_with_document(
+                llm=llm,
+                query_text=user_input,
+                benchmark=benchmark,
+                memory=memory,
                 doc_id=doc_id,
-                k=3
+                session_id=session_id
             )
-
-            if doc_context:
-                prompt = f"{doc_context}\n\nUser: {user_input}\nAssistant:"
-                print(f"\nНайдена информация в документе")
-            else:
-                prompt = f"User: {user_input}\nAssistant:"
-                print(f"\nНичего не найдено в документе")
-
-            start_time = time.time()
-            response = llm(
-                prompt, 
-                max_tokens=500, 
-                temperature=0.5, 
-                top_p=0.9, 
-                echo=False
-            )
-            time_taken = time.time() - start_time
-                
-            answer = response['choices'][0]['text'].strip()
-            tokens = response['usage']['completion_tokens']
-            token_count += tokens
-            speed = tokens / time_taken if time_taken > 0 else 0
-
-            memory.add_message("user", user_input, session_id=session_id)
-            memory.add_message("assistant", answer, session_id=session_id)
-                
+            
             print(answer)
-            print(f"\n[{tokens} токенов | всего: {token_count} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
-                
+            token_count += tokens
+            source_info = "из документа" if "отсутствует" not in answer.lower() else "информация не найдена"
+            print(f"\n[{tokens} токенов | {source_info} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
+            
         except Exception as e:
             print(f"\nОшибка: {e}")
 
@@ -471,8 +525,7 @@ def main():
         elif choice == '2':
             index_documents_interactive(memory)
         elif choice == '3':
-            #chat_with_document_session(memory) 
-            print("Пока в тестировании...")
+            chat_with_document_session(memory) 
             continue
         elif choice == '4':
             break
