@@ -7,3 +7,5 @@ sentence-transformers==5.2.3
 PyPDF2==3.0.1
 python-docx==1.2.0
 python==3.11.4
+huggingface-hub==0.36.2
+docling[complete]==2.77.0
