@@ -11,7 +11,10 @@ import json
 from datetime import datetime
 from llama_cpp import Llama
 
-from memory import VectorMemory  
+from memory import VectorMemory 
+from reranker import LocalLLMReranker 
+from document_parser import DocumentProcessor
+from prompts import DocumentSearchPrompt, EnhancedNameSearchPrompt, NumericValueSearchPrompt, KeywordSearchPrompt, UnifiedRAGPrompt
 
 
 MODEL_PATH = "./models/Phi-3-mini-4k-instruct-q4.gguf"
@@ -170,24 +173,34 @@ def load_model(benchmark):
     
     return llm
 
-def generate_with_memory(llm, query_text, benchmark, memory, session_id="default", use_docs=True):
+def generate_with_memory(llm, query_text, benchmark, memory, session_id="default", 
+                        use_docs=True, reranker=None):
+    
+    
     doc_texts = []
     if use_docs:
-        doc_context = memory.get_clean_document_context(query_text, k=2)
-        if doc_context:
-            doc_texts.append(doc_context)
+        if reranker:
+            results = memory.search_with_rerank(query_text, reranker, initial_k=10, final_k=2)
+        else:
+            results = memory.search_documents(query_text, k=2)
+        
+        for r in results:
+            text = r['text'].strip()
+            if text and len(text) > 0:
+                doc_texts.append(text)
     
     if doc_texts:
-        combined_docs = " ".join(doc_texts)
+        combined_docs = " ".join(doc_texts[:2])
         if len(combined_docs) > 1000:
             combined_docs = combined_docs[:1000] + "..."
-  
-        prompt = f"""Ты - полезный ассистент. Отвечай на вопросы пользователя, используя предоставленную информацию. Дополнительную информацию по теме искать здесь: {combined_docs} 
+        
+        prompt = f"""Ты - полезный ассистент. Отвечай на вопросы пользователя, используя предоставленную информацию.
+        Информация для ответа: {combined_docs}
         Вопрос: {query_text}
         Ответ:"""
     else:
         prompt = f"""Ты - полезный ассистент. Отвечай на вопросы пользователя. 
-        Вопрос: {query_text} 
+        Вопрос: {query_text}
         Ответ:"""
 
     start_time = time.time()
@@ -232,12 +245,14 @@ def clean_model_output(text: str) -> str:
     
     return text
 
-def chat_loop_with_return(llm, benchmark, memory, session_id):
+def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
     token_count = 0
     MAX_TOKENS_PER_SESSION = 4096
     use_docs_context = True
     
     print(f"\nСессия: {session_id}")
+
+    
     print("\nКоманды:")
     print("  /exit - выход в главное меню")
     print("  /new - начать новую сессию")
@@ -245,7 +260,6 @@ def chat_loop_with_return(llm, benchmark, memory, session_id):
     print("  /docs - список документов")
     print("  /tokens - показать число использованных токенов")
     print("  /memory - статистика памяти")
-    
     while True:
         if token_count >= MAX_TOKENS_PER_SESSION:
             print(f"\nДостигнут лимит токенов ({MAX_TOKENS_PER_SESSION}) в этой сессии!")
@@ -314,7 +328,8 @@ def chat_loop_with_return(llm, benchmark, memory, session_id):
                 benchmark=benchmark, 
                 memory=memory, 
                 session_id=session_id,
-                use_docs=use_docs_context 
+                use_docs=use_docs_context,
+                reranker=reranker if use_docs_context else None
             )
             print(answer)
             token_count += tokens 
@@ -325,6 +340,7 @@ def chat_loop_with_return(llm, benchmark, memory, session_id):
             print(f"\nОшибка: {e}")
 
 def chat_session(memory):
+    
     chat_session.benchmark = ModelBenchmark()
     
     try:
@@ -333,8 +349,10 @@ def chat_session(memory):
         print(f"Ошибка загрузки модели: {e}")
         return
     
+    reranker = LocalLLMReranker(chat_session.llm, batch_size=3)
     session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    result = chat_loop_with_return(chat_session.llm, chat_session.benchmark, memory, session_id)
+    result = chat_loop_with_return(chat_session.llm, chat_session.benchmark, 
+                                  memory, session_id, reranker)
     
     if result == "menu":
         return 
@@ -499,12 +517,19 @@ def chat_with_document_session(memory):
 
 def main():
 
+    processor = DocumentProcessor(
+        use_docling=True,
+        ocr_enabled=True, 
+        table_mode="accurate"  
+    )
+
     print("\nИнициализация векторной памяти...")
     memory = VectorMemory(
         persist_directory=MEMORY_PATH,
         memory_collection=MEMORY_COLLECTION,
         docs_collection=DOCS_COLLECTION,
-        embedding_model="intfloat/multilingual-e5-base"
+        embedding_model="intfloat/multilingual-e5-base",
+        doc_processor=processor
     )
     
     stats = memory.get_stats()
