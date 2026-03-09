@@ -4,12 +4,14 @@
 """
 
 import os
+import re
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import psutil
 import json
 from datetime import datetime
 from llama_cpp import Llama
+from pydantic import BaseModel, Field
 
 from memory import VectorMemory 
 from reranker import LocalLLMReranker 
@@ -173,79 +175,112 @@ def load_model(benchmark):
     
     return llm
 
-def generate_with_memory(llm, query_text, benchmark, memory, session_id="default", 
-                        use_docs=True, reranker=None):
-    
-    
+def generate_with_prompts(
+    llm, 
+    query_text: str, 
+    benchmark, 
+    memory, 
+    session_id: str = "default", 
+    use_docs: bool = True,
+    reranker = None
+):
+
     doc_texts = []
+    relevant_chunks = []
+    
+    keywords = extract_keywords(query_text)
     if use_docs:
         if reranker:
-            results = memory.search_with_rerank(query_text, reranker, initial_k=10, final_k=2)
+            results = memory.search_with_rerank(query_text, reranker, initial_k=5, final_k=2)
         else:
             results = memory.search_documents(query_text, k=2)
         
-        for r in results:
+        relevant_chunks = results
+
+        context_parts = []
+        for i, r in enumerate(results, 1):
             text = r['text'].strip()
-            if text and len(text) > 0:
+            if text:
+                if len(text) > 800:
+                    text = text[:800] + "..."
+                context_parts.append(f"[ЧАСТЬ {i}]\n{text}")
                 doc_texts.append(text)
-    
-    if doc_texts:
-        combined_docs = " ".join(doc_texts[:2])
-        if len(combined_docs) > 1000:
-            combined_docs = combined_docs[:1000] + "..."
         
-        prompt = f"""Ты - полезный ассистент. Отвечай на вопросы пользователя, используя предоставленную информацию.
-        Информация для ответа: {combined_docs}
-        Вопрос: {query_text}
-        Ответ:"""
+        context = "\n\n---\n\n".join(context_parts) if context_parts else "Контекст пуст"
     else:
-        prompt = f"""Ты - полезный ассистент. Отвечай на вопросы пользователя. 
-        Вопрос: {query_text}
-        Ответ:"""
+        context = "Документы не используются."
+    
+    system_prompt = DocumentSearchPrompt.system_prompt
+    user_prompt = DocumentSearchPrompt.user_prompt.format(
+        context=context,
+        question=query_text,
+        keywords=", ".join(keywords)
+    )
+    full_prompt = f"{system_prompt}\n\n{user_prompt}\n\nОтвет:"
 
     start_time = time.time()
+    
     response = llm(
-        prompt, 
-        max_tokens=500, 
-        temperature=0.5, 
+        full_prompt, 
+        max_tokens=350,
+        temperature=0.5,
         top_p=0.9, 
-        echo=False,
-        stop=["Вопрос:", "User:", "\n\n"] 
+        echo=False
     )
+    
     time_taken = time.time() - start_time
     
-    answer = response['choices'][0]['text'].strip()
-    answer = clean_model_output(answer)
+    raw_answer = response['choices'][0]['text'].strip()
+    raw_answer = clean_model_output(raw_answer)
     
     token_count = response['usage']['completion_tokens']
     tokens_per_second = token_count / time_taken if time_taken > 0 else 0
-
     if session_id:
         memory.add_message("user", query_text, session_id=session_id)
-        memory.add_message("assistant", answer, session_id=session_id)
+        memory.add_message("assistant", raw_answer, session_id=session_id)
     
-    benchmark.add_query_result(query_text, answer, token_count, time_taken, tokens_per_second)
-    
-    return answer, token_count, time_taken, tokens_per_second
+    benchmark.add_query_result(query_text, raw_answer, token_count, time_taken, tokens_per_second)
+
+    return raw_answer, token_count, time_taken, tokens_per_second
 
 def clean_model_output(text: str) -> str:
     artifacts = [
         "Assistant:", "Ассистент:", "User:", "Пользователь:",
         "[Информация", "Из документа", "[/Информация]",
-        "контекст:", "Дополнительная информация:", "Ответ:"
+        "контекст:", "Дополнительная информация:", "Ответ:",
+        "<|system|>", "<|user|>", "<|assistant|>", "<|end|>"
     ]
     
     for artifact in artifacts:
         if artifact in text:
             if text.startswith(artifact):
                 text = text[len(artifact):].strip()
-  
+            text = text.replace(artifact, "")
+    
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     text = ' '.join(lines)
     
     return text
 
-def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
+
+def extract_keywords(question: str) -> List[str]:
+    
+    stop_words = {
+        'какой', 'какая', 'какое', 'какие', 'кто', 'что', 'где', 
+        'когда', 'почему', 'зачем', 'как', 'сколько', 'это', 'тот',
+        'этот', 'весь', 'все', 'они', 'она', 'оно', 'мы', 'вы',
+        'в', 'на', 'с', 'со', 'из', 'по', 'к', 'у', 'от', 'для',
+        'и', 'а', 'но', 'или', 'что', 'чтобы', 'быть', 'иметь'
+    }
+    
+    clean_question = re.sub(r'[^\w\s]', ' ', question.lower())
+    words = clean_question.split()
+    
+    keywords = [w for w in words if w not in stop_words and len(w) > 2]
+    
+    return list(set(keywords))[:5]
+
+def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=True):
     token_count = 0
     MAX_TOKENS_PER_SESSION = 4096
     use_docs_context = True
@@ -322,14 +357,14 @@ def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
 
         print("\nАссистент: ", end="", flush=True)
         try:
-            answer, tokens, time_taken, speed = generate_with_memory(
+            answer, tokens, time_taken, speed = generate_with_prompts(
                 llm, 
                 query_text=user_input, 
                 benchmark=benchmark, 
                 memory=memory, 
                 session_id=session_id,
                 use_docs=use_docs_context,
-                reranker=reranker if use_docs_context else None
+                reranker=reranker
             )
             print(answer)
             token_count += tokens 
@@ -384,38 +419,104 @@ def choose_document(memory) -> Optional[Dict]:
         except ValueError:
             print("Введите число")
 
-def generate_with_document(llm, query_text, benchmark, memory, doc_id, session_id="default"):
+def generate_with_document(
+    llm, 
+    query_text: str, 
+    benchmark, 
+    memory, 
+    doc_id: str, 
+    session_id: str = "default",
+    reranker = None
+):
+    keywords = extract_keywords(query_text)
+    print(f"\nРежим документа")
+    context_parts = []
+    relevant_chunks = []
+
     doc_context = memory.get_document_only_context(query_text, doc_id, k=2)
+    
     if doc_context:
-        prompt = f"""Ты - ассистент для работы с документом. Отвечай на вопросы, используя только информацию из предоставленного документа. 
-        Содержание документа:{doc_context[:1000]}{'...' if len(doc_context) > 1000 else ''}
-        Вопрос: {query_text}
-        Ответ:"""
+        if reranker:
+            query_embedding = memory._get_embedding(query_text, is_query=True)
+            results = memory.docs_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=3,
+                where={"doc_id": str(doc_id).strip()}
+            )
+            
+            if results['ids'][0]:
+                initial_chunks = []
+                for i in range(len(results['ids'][0])):
+                    distance = results['distances'][0][i] if results['distances'] else 1.0
+                    score = max(0, 1 - distance / 2)
+                    initial_chunks.append({
+                        "text": results['documents'][0][i],
+                        "relevance_score": score,
+                        "distance": distance
+                    })
+                
+                reranked = reranker.rerank(query_text, initial_chunks, top_k=2)
+                relevant_chunks = reranked
+                for i, chunk in enumerate(reranked, 1):
+                    text = chunk['text'].strip()
+                    if len(text) > 600: 
+                        text = text[:600] + "..."
+                    context_parts.append({text})
+        else:
+            query_embedding = memory._get_embedding(query_text, is_query=True)
+            results = memory.docs_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=2,
+                where={"doc_id": str(doc_id).strip()}
+            )
+            
+            if results['ids'][0]:
+                for i in range(len(results['ids'][0])):
+                    text = results['documents'][0][i].strip()
+                    if len(text) > 600:
+                        text = text[:600] + "..."
+                    context_parts.append({text})
+                    relevant_chunks.append({
+                        "text": text,
+                        "relevance_score": max(0, 1 - results['distances'][0][i]/2)
+                    })
+        
+        context = "\n\n---\n\n".join(context_parts) if context_parts else doc_context
+        print(f"Использовано чанков: {len(relevant_chunks)}")
     else:
-        prompt = f"""Ты - ассистент для работы с документом. Если информация отсутствует в документе, так и скажи. 
-        Вопрос: {query_text}
-        Ответ: Информация по этому вопросу отсутствует в документе."""
+        context = "В документе не найдено релевантной информации."
+        print("Релевантные чанки не найдены")
+    
+    system_prompt = DocumentSearchPrompt.system_prompt
+    user_prompt = DocumentSearchPrompt.user_prompt.format(
+        context=context,
+        question=query_text,
+        keywords=", ".join(keywords)
+    )
+    
+    full_prompt = f"{system_prompt}\n\n{user_prompt}\n\nОтвет:"
 
     start_time = time.time()
+    
     response = llm(
-        prompt, 
-        max_tokens=300,  
+        full_prompt, 
+        max_tokens=350,
         temperature=0.5,
         top_p=0.9, 
-        echo=False,
-        stop=["Вопрос:", "User:", "\n\n"]
+        echo=False
     )
+    
     time_taken = time.time() - start_time
     
     answer = response['choices'][0]['text'].strip()
-
-    answer = clean_document_output(answer)
+    if not answer or len(answer) < 2:
+        answer = "Информация по данному вопросу отсутствует в документе."
     
     token_count = response['usage']['completion_tokens']
     tokens_per_second = token_count / time_taken if time_taken > 0 else 0
 
     if session_id:
-        memory.add_message("user", f"[Документ: {doc_id}] {query_text}", session_id=session_id)
+        memory.add_message("user", {query_text}, session_id=session_id)
         memory.add_message("assistant", answer, session_id=session_id)
     
     benchmark.add_query_result(query_text, answer, token_count, time_taken, tokens_per_second)
@@ -528,7 +629,7 @@ def main():
         persist_directory=MEMORY_PATH,
         memory_collection=MEMORY_COLLECTION,
         docs_collection=DOCS_COLLECTION,
-        embedding_model="intfloat/multilingual-e5-base",
+        embedding_model="DeepPavlov/rubert-base-cased-sentence",
         doc_processor=processor
     )
     

@@ -40,7 +40,7 @@ class VectorMemory:
         persist_directory: str = "./rag_data",
         memory_collection: str = "conversations",
         docs_collection: str = "documents",
-        embedding_model: str = "intfloat/multilingual-e5-base",
+        embedding_model: str = "DeepPavlov/rubert-base-cased-sentence",
         doc_processor: Optional[DocumentProcessor] = None 
     ):
         
@@ -364,7 +364,7 @@ class VectorMemory:
         return " ".join(text_parts)
 
     def search_with_rerank(self, query: str, reranker: Optional[LocalLLMReranker] = None, 
-                        initial_k: int = 10, final_k: int = 3) -> List[Dict]:
+                        initial_k: int = 5, final_k: int = 3) -> List[Dict]:
    
         initial_results = self.search_documents(
             query, 
