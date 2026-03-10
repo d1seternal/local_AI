@@ -19,7 +19,7 @@ from document_parser import DocumentProcessor
 from prompts import DocumentSearchPrompt, EnhancedNameSearchPrompt, NumericValueSearchPrompt, KeywordSearchPrompt, UnifiedRAGPrompt
 
 
-MODEL_PATH = "./models/Phi-3-mini-4k-instruct-q4.gguf"
+MODEL_PATH = "./models/yarn-mistral-7b-64k.Q4_K_M.gguf"
 MEMORY_PATH = "./rag_data"
 MEMORY_COLLECTION = "conversations"  
 DOCS_COLLECTION = "documents"     
@@ -150,14 +150,14 @@ def load_model(benchmark):
     
     llm = Llama(
         model_path=MODEL_PATH,
-        n_ctx=4096,                  
+        n_ctx=8192,                  
         n_threads=8,                   
         n_gpu_layers=0,                  
         verbose=False,                    
         seed=42,                          
         temperature=0.5,                   
         top_p=0.9,
-        chat_format="chatml"    # можно использовать необходимый формат для конкретной модели                
+        chat_format="mistral-instruct"    # можно использовать необходимый формат для конкретной модели                
     )
     
     load_time = time.time() - start_time
@@ -280,35 +280,34 @@ def extract_keywords(question: str) -> List[str]:
     
     return list(set(keywords))[:5]
 
-def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=True):
+def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
     token_count = 0
-    MAX_TOKENS_PER_SESSION = 4096
+    MAX_TOKENS_PER_SESSION = 8192
     use_docs_context = True
     
     print(f"\nСессия: {session_id}")
-
     
     print("\nКоманды:")
     print("  /exit - выход в главное меню")
-    print("  /new - начать новую сессию")
+    print("  /new - начать новую сессию (сбросить токены)")
+    print("  /clear - очистить историю текущей сессии")
+    print("  /history - показать историю текущей сессии")
+    print("  /all_history - показать всю историю диалогов")
+    print("  /delete_history <id> - удалить историю сессии по ID")
+    print("  /delete_all_history - удалить всю историю диалогов")
     print("  /search <запрос> - поиск по документам")
     print("  /docs - список документов")
     print("  /tokens - показать число использованных токенов")
     print("  /memory - статистика памяти")
+    
     while True:
         if token_count >= MAX_TOKENS_PER_SESSION:
             print(f"\nДостигнут лимит токенов ({MAX_TOKENS_PER_SESSION}) в этой сессии!")
-            print("1. Начать новую сессию")
-            print("2. Вернуться в главное меню")
-            print("3. Продолжить текущую сессию (не рекомендуется)")
-            
-            choice = input("Ваш выбор: ").strip()
+            choice = input("Начать новую сессию? (1 - да, 2 - нет): ").strip()
             if choice == '1':
                 return "new_session"
-            elif choice == '2':
-                return "menu"
             else:
-                token_count = 0  
+                token_count = 0
                 print("Продолжаем текущую сессию")
         
         user_input = input("\nВы: ").strip()
@@ -317,26 +316,100 @@ def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=True):
             return "menu"
         
         if user_input.lower() == '/new':
+            print("\nНачинаем новую сессию...")
             return "new_session"
         
+        if user_input.lower() == '/clear':
+            deleted = memory.delete_session(session_id)
+            token_count = 0
+            print(f"История текущей сессии очищена")
+            continue
+
+        if user_input.lower() == '/history':
+            messages = memory.get_session_messages(session_id, limit=50)
+            if messages:
+                print(f"\nИстория сессии {session_id}:")
+                for i, msg in enumerate(messages, 1):
+                    role = msg['metadata'].get('role', 'unknown')
+                    text = msg['text'].replace(f"{role}: ", "")[:100]
+                    timestamp = datetime.fromtimestamp(msg['metadata'].get('timestamp', 0)).strftime('%H:%M:%S')
+                    print(f"  {i}. [{timestamp}] {role}: {text}...")
+                print(f"\nВсего сообщений: {len(messages)}")
+            else:
+                print("История текущей сессии пуста")
+            continue
+        
+        if user_input.lower() == '/all_history':
+            all_messages = memory.memory_collection.get()
+            
+            if all_messages['ids']:
+                sessions = {}
+                for i in range(len(all_messages['ids'])):
+                    session = all_messages['metadatas'][i].get('session_id', 'unknown')
+                    if session not in sessions:
+                        sessions[session] = 0
+                    sessions[session] += 1
+                
+                print(f"\nВся история диалогов:")
+                print(f"   Всего сообщений: {len(all_messages['ids'])}")
+                print(f"   Сессий: {len(sessions)}")
+                print("\n Список сессий:")
+                for session, count in sorted(sessions.items(), key=lambda x: x[0]):
+                    preview = session
+                    print(f"  • {preview}: {count} сообщений")
+                print("\n Используйте /delete_history <id> для удаления конкретной сессии")
+            else:
+                print("История диалогов пуста")
+            continue
+
+        if user_input.startswith('/delete_history'):
+            parts = user_input.split()
+            if len(parts) == 2:
+                target_session = parts[1].strip()
+                deleted = memory.delete_session(target_session)
+                if deleted > 0:
+                    print(f"Сессия {target_session} удалена ({deleted} сообщений)")
+                else:
+                    print(f" Сессия с ID {target_session} не найдена")
+            else:
+                print("Использование: /delete_history <session_id>")
+            continue
+
+        if user_input.lower() == '/delete_all_history':
+            confirm = input("Точно удалить всю историю диалогов? (yes/no): ").strip().lower()
+            if confirm == 'yes':
+                all_messages = memory.memory_collection.get()
+                if all_messages['ids']:
+                    memory.memory_collection.delete(ids=all_messages['ids'])
+                    print(f"Вся история диалогов удалена ({len(all_messages['ids'])} сообщений)")
+                else:
+                    print("История и так пуста")
+            else:
+                print("Операция отменена")
+            continue
+        
         if user_input.startswith('/search'):
-            query = user_input[7:].strip()
+            query = user_input[8:].strip() if user_input.startswith('/search ') else user_input[7:].strip()
             if query:
                 results = memory.search_documents(query, k=3)
                 print(f"\nНайдено {len(results)} результатов:")
                 for i, r in enumerate(results, 1):
                     source = r['metadata'].get('filename', r['metadata'].get('source', 'unknown'))
-                    print(f"\n{i}. [релевантность: {r['relevance_score']:.2f}, из: {source}]")
-                    print(r['text'][:750] + "..." if len(r['text']) > 750 else r['text'])
+                    doc_id = r['metadata'].get('doc_id', 'unknown')
+                    print(f"\n{i}. [релевантность: {r['relevance_score']:.2f}]")
+                    print(f"   Документ: {source}")
+                    print(f"   ID: {doc_id}")
+                    print(r['text'][:300] + "..." if len(r['text']) > 300 else r['text'])
             continue
         
         if user_input == '/docs':
             docs = memory.list_documents()
             print(f"\nДокументов в базе: {len(docs)}")
-            for doc in docs:
-                from datetime import datetime
-                dt = datetime.fromtimestamp(doc['timestamp'])
-                print(f"  {doc['filename']}: {doc['chunks']} чанков")
+            for i, doc in enumerate(docs, 1):
+                dt = datetime.fromtimestamp(doc['timestamp']).strftime('%Y-%m-%d %H:%M')
+                print(f"\n{i}. {doc['filename']}")
+                print(f"   ID: {doc['doc_id']}")
+                print(f"   Чанков: {doc['chunks']}")
             continue
         
         if user_input == '/tokens':
@@ -347,7 +420,7 @@ def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=True):
         if user_input == '/memory':
             stats = memory.get_stats()
             print(f"\n Статистика памяти:")
-            print(f"   Диалогов: {stats['memory_messages']}")
+            print(f"   Диалогов в памяти: {stats['memory_messages']}")
             print(f"   Чанков документов: {stats['document_chunks']}")
             print(f"   Документов: {stats['documents']}")
             continue
@@ -368,11 +441,13 @@ def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=True):
             )
             print(answer)
             token_count += tokens 
-                
-            print(f" | {tokens} токенов | всего: {token_count} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
+            
+            print(f"\n[{tokens} токенов | всего: {token_count} | {time_taken:.2f} сек | {speed:.1f} ток/сек]")
             
         except Exception as e:
             print(f"\nОшибка: {e}")
+            import traceback
+            traceback.print_exc()
 
 def chat_session(memory):
     
@@ -429,7 +504,7 @@ def generate_with_document(
     reranker = None
 ):
     keywords = extract_keywords(query_text)
-    print(f"\nРежим документа")
+
     context_parts = []
     relevant_chunks = []
 
@@ -461,7 +536,7 @@ def generate_with_document(
                     text = chunk['text'].strip()
                     if len(text) > 600: 
                         text = text[:600] + "..."
-                    context_parts.append({text})
+                    context_parts.append(f"[ЧАСТЬ {i+1}]\n{text}")
         else:
             query_embedding = memory._get_embedding(query_text, is_query=True)
             results = memory.docs_collection.query(
@@ -475,14 +550,13 @@ def generate_with_document(
                     text = results['documents'][0][i].strip()
                     if len(text) > 600:
                         text = text[:600] + "..."
-                    context_parts.append({text})
+                    context_parts.append(f"[ЧАСТЬ {i+1}]\n{text}")
                     relevant_chunks.append({
                         "text": text,
                         "relevance_score": max(0, 1 - results['distances'][0][i]/2)
                     })
         
         context = "\n\n---\n\n".join(context_parts) if context_parts else doc_context
-        print(f"Использовано чанков: {len(relevant_chunks)}")
     else:
         context = "В документе не найдено релевантной информации."
         print("Релевантные чанки не найдены")
@@ -516,7 +590,7 @@ def generate_with_document(
     tokens_per_second = token_count / time_taken if time_taken > 0 else 0
 
     if session_id:
-        memory.add_message("user", {query_text}, session_id=session_id)
+        memory.add_message("user", query_text, session_id=session_id)
         memory.add_message("assistant", answer, session_id=session_id)
     
     benchmark.add_query_result(query_text, answer, token_count, time_taken, tokens_per_second)
@@ -559,7 +633,7 @@ def chat_with_document_session(memory):
     
     session_id = f"doc_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     token_count = 0
-    MAX_TOKENS = 4096
+    MAX_TOKENS = 8192
     
     print(f"\n Сессия: {session_id}")
     print("\nКоманды:")
@@ -629,7 +703,7 @@ def main():
         persist_directory=MEMORY_PATH,
         memory_collection=MEMORY_COLLECTION,
         docs_collection=DOCS_COLLECTION,
-        embedding_model="DeepPavlov/rubert-base-cased-sentence",
+        embedding_model="intfloat/multilingual-e5-base",
         doc_processor=processor
     )
     

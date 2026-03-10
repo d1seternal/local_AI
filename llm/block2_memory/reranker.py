@@ -99,7 +99,7 @@ class LocalLLMReranker:
         10 - идеально релевантно, содержит прямой ответ
         Вопрос: {query}
         Документ: {document}
-        Твоя оценка (только число от 0 до 10):<|end|><|assistant|>"""
+        Твоя оценка (только число от 0 до 10):<|assistant|>"""
         
         return prompt
     
@@ -115,7 +115,7 @@ class LocalLLMReranker:
                 text = text[:750] + "..."
             prompt += f"\n{i}. {text}\n"
         
-        prompt += """\nТвои оценки (только числа через запятую):<|end|><|assistant|>Оценки:"""
+        prompt += """\nТвои оценки (только числа через запятую):<|assistant|>Оценки:"""
         
         return prompt
     

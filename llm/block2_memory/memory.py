@@ -40,7 +40,7 @@ class VectorMemory:
         persist_directory: str = "./rag_data",
         memory_collection: str = "conversations",
         docs_collection: str = "documents",
-        embedding_model: str = "DeepPavlov/rubert-base-cased-sentence",
+        embedding_model: str = "intfloat/multilingual-e5-base",
         doc_processor: Optional[DocumentProcessor] = None 
     ):
         
@@ -395,6 +395,25 @@ class VectorMemory:
             results = [r for r in results if r['relevance_score'] > 0.7]
         
         return results[:k]
+    
+    def get_session_messages(self, session_id: str, limit: int = 50) -> List[Dict]:
+        results = self.memory_collection.get(
+            where={"session_id": session_id},
+            limit=limit
+        )
+        
+        messages = []
+        if results['ids']:
+            for i in range(len(results['ids'])):
+                messages.append({
+                    "id": results['ids'][i],
+                    "text": results['documents'][i],
+                    "metadata": results['metadatas'][i]
+                })
+
+        messages.sort(key=lambda x: x['metadata'].get('timestamp', 0))
+        
+        return messages
 
     def list_documents(self) -> List[Dict[str, Any]]:
         results = self.docs_collection.get()

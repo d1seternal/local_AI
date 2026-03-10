@@ -45,7 +45,7 @@ class DocumentProcessor:
         use_docling: bool = True,
         ocr_enabled: bool = False,
         table_mode: str = "fast",      
-        chunk_size: int = 200,        
+        chunk_size: int = 300,        
         chunk_overlap: int = 50
     ):
         self.use_docling = use_docling
