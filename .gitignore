@@ -19,6 +19,8 @@ Thumbs.db
 *.key
 chroma_db/
 rag_data/
+agent_data/
+agent_vector_store/
 *.bin
 *.safetensors
 *.sqlite3
