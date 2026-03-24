@@ -474,8 +474,7 @@ def create_agent():
         vector_list,          
         search_documents,    
         write_file,          
-        execute_python,      
-        list_files         
+        execute_python        
     ]
 
     prompt = ChatPromptTemplate.from_template(
