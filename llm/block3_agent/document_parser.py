@@ -2,8 +2,9 @@
 Модуль для обработки PDF- и DOCX-документов.
 
 """
-
+import json
 import pathlib
+from pathlib import Path
 import traceback
 from typing import List, Dict, Any
 from dataclasses import dataclass
@@ -26,7 +27,6 @@ try:
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
-
 
 @dataclass
 class Chunk:
@@ -155,10 +155,8 @@ class DocumentProcessor:
             return self._process_fallback(file_path)
     
     def _process_docx(self, file_path: pathlib.Path) -> DocumentProcessingResult:
-        
         try:
-            doc = DocxDocument(file_path)
-            
+            doc = DocxDocument(file_path) 
             all_content = []
             tables_info = []
 
@@ -223,29 +221,31 @@ class DocumentProcessor:
             chunks = text_splitter.split_text(full_text)
             
             print(f"Создано {len(chunks)} чанков")
-            for idx, chunk in enumerate(chunks):
-                chunks[idx] = ' '.join(chunk.split())
-                if len(chunks[idx]) < 20: 
-                    chunks[idx] = ""
-            
-            chunks = [c for c in chunks if c and len(c) > 20]
 
-            # if tables_info:
-            #     table_splitter = RecursiveCharacterTextSplitter(
-            #         chunk_size=300,
-            #         chunk_overlap=50,
-            #         separators=["\n", " | ", " ", ""]
-            #     )
-                
-            #     for table_idx, table_info in enumerate(tables_info):
-            #         table_text = table_info['text']
-            #         if table_text and len(table_text.strip()) > 20:
-            #             table_chunks = table_splitter.split_text(table_text)
-            #             for t_chunk_idx, t_chunk in enumerate(table_chunks):
-            #                 clean_table_chunk = ' '.join(t_chunk.split())
+            chunk_objects = []
+            for idx, chunk_text in enumerate(chunks):
+                clean_chunk = ' '.join(chunk_text.split())
+                if len(clean_chunk) > 20:
+                    chunk_objects.append(
+                        Chunk(
+                            text=clean_chunk,
+                            metadata={"chunk_index": idx}
+                        )
+                    )
             
             print(f"DOCX обработан: {len(chunks)} чанков, {len(tables_info)} таблиц")
             
+            return DocumentProcessingResult(
+                text=full_text,
+                chunks=chunk_objects,
+                tables=tables_info,
+                metadata={
+                    "filename": file_path.name,
+                    "file_size": file_path.stat().st_size,
+                    "tables_count": len(tables_info),
+                    "parser": "python-docx"
+                }
+            )
         
         except Exception as e:
             traceback.print_exc()

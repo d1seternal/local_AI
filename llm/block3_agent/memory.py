@@ -1,6 +1,9 @@
 import time
+import json
+import re
 import uuid
 import pathlib
+from pathlib import Path
 import shutil
 from typing import List, Dict, Optional, Any
 
@@ -28,6 +31,8 @@ try:
 except ImportError:
     DOCX_SUPPORT = False
     print("поддержка DOCX отключена")
+
+DATA_DIR = Path("agent_data")
 
 from reranker import LocalLLMReranker
 from document_parser import DocumentProcessor
@@ -62,44 +67,103 @@ class VectorMemory:
         self._init_chromadb()
     
     def index_document(self, file_path: str, doc_id: Optional[str] = None) -> int:
-        file_path = pathlib.Path(file_path)
-        if not file_path.exists():
-            raise FileNotFoundError(f"Файл не найден: {file_path}")
+        raw_input = str(file_path)
+        print(f"Получено для индексации: '{raw_input}'")
+        
+        try:
+            parsed = json.loads(raw_input)
+            if isinstance(parsed, dict):
+                filename = parsed.get('filepath', parsed.get('file', ''))
+                if filename:
+                    raw_input = filename
+                    print(f"Извлечено из JSON: '{filename}'")
+        except json.JSONDecodeError:
+            pass
+        
+        cleaned = re.sub(r'^[\s"\'{}\[\]()]+|[\s"\'{}\[\]()]+$', '', raw_input)
+        cleaned = cleaned.replace('\\', '/')
+        cleaned = re.sub(r'^filepath["\']?\s*[:=]\s*', '', cleaned)
+        cleaned = pathlib.Path(cleaned).name
+        
+        print(f"Ищем файл: '{cleaned}'")
+        
+        found_path = None
+        test_path = DATA_DIR / cleaned
+        if test_path.exists():
+            found_path = test_path
+            print(f"Файл найден: {test_path}")
+        
+        if not found_path:
+            for f in DATA_DIR.glob("*"):
+                if f.is_file() and f.name.lower() == cleaned.lower():
+                    found_path = f
+                    print(f"Найден по регистру: {f}")
+                    break
+        
+        if not found_path:
+            for f in DATA_DIR.glob("*"):
+                if f.is_file():
+                    if cleaned.lower() in f.name.lower() or f.name.lower() in cleaned.lower():
+                        found_path = f
+                        print(f"Найден по частичному: {f}")
+                        break
+        
+        if not found_path:
+            available = [f.name for f in DATA_DIR.glob("*") if f.is_file()]
+            if available:
+                raise FileNotFoundError(
+                    f"Файл '{cleaned}' не найден.\n\nДоступные:\n" + 
+                    "\n".join([f"  • {f}" for f in sorted(available)[:10]])
+                )
+            raise FileNotFoundError(f"Директория {DATA_DIR} пуста")
         
         if doc_id is None:
             doc_id = f"doc_{uuid.uuid4().hex[:8]}"
+       
+        result = self.doc_processor.process_document(found_path)
 
-        result = self.doc_processor.process_document(file_path)
-        
-        if not result.text.strip():
+        if result.text is None or not result.text.strip():
+            print(f"Документ {found_path.name} не содержит текста")
             return 0
+        
+        dest_path = self.documents_dir / f"{doc_id}_{found_path.name}"
+        shutil.copy2(found_path, dest_path)
+        
+        for chunk_idx, chunk in enumerate(result.chunks):
+            from document_parser import Chunk 
+            clean_chunk = chunk.text.strip()
+            clean_chunk = re.sub(r'\s+', ' ', clean_chunk)
+            if len(clean_chunk) < 10:
+                continue
+            
+            class TempChunk:
+                def __init__(self, text):
+                    self.text = text
+                    self.metadata = {}
+            
+            chunk = TempChunk(clean_chunk)
 
-        dest_path = self.documents_dir / f"{doc_id}_{file_path.name}"
-        shutil.copy2(file_path, dest_path)
-
-        for chunk_idx, chunk in enumerate(result.chunks): 
             chunk.metadata.update({
                 "doc_id": doc_id,
-                "filename": file_path.name,
+                "filename": found_path.name,
                 "stored_path": str(dest_path),
-                "file_size": file_path.stat().st_size,
+                "file_size": found_path.stat().st_size,
                 "timestamp": time.time(),
-                "chunk_index": chunk_idx,
+                "chunk_index": chunk_idx, 
                 "chunk_total": len(result.chunks),
-                **result.metadata
+                "source": "agent_upload"
             })
-
-            embedding = self._get_embedding(chunk.text, is_query=False)
+            
+            embedding = self._get_embedding(clean_chunk, is_query=False)
             chunk_id = f"{doc_id}_chunk_{chunk_idx}"
-
+            
             self.docs_collection.add(
                 embeddings=[embedding],
-                documents=[chunk.text],
+                documents=[clean_chunk],
                 metadatas=[chunk.metadata],
                 ids=[chunk_id]
             )
-        
-        print(f"Документ {file_path.name}: {len(result.chunks)} чанков, {len(result.tables)} таблиц")
+            
         return len(result.chunks)
     
     def search_documents(

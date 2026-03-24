@@ -63,7 +63,7 @@ except ImportError:
     DOCX_SUPPORT = False
     print("Установите: pip install python-docx")
 
-MODEL_PATH="./models/deepseek-r1-qwen3-8b-q4_k_m.gguf"
+MODEL_PATH="D:/AI/Llama/models/deepseek-r1-qwen3-8b-q4_k_m.gguf"
 RAG_APP_PATH = Path("main_llm_rag.py")
 DATA_DIR = Path("agent_data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -257,8 +257,7 @@ class AgentLLM(LLM):
 
     def __init__(self, shared_llm):
         super().__init__()
-        self.shared_llm = shared_llm
-    
+        self.shared_llm = shared_llm    
     @property
     def _llm_type(self) -> str:
         return "agent_llm"
@@ -269,7 +268,7 @@ class AgentLLM(LLM):
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
                 temperature=0.5,
-                stop=stop or ["Observation:", "User:", "Assistant:"]
+                stop=["Observation:", "User:", "FINAL ANSWER:", "\n\n"]
             )
             return response['choices'][0]['message']['content'].strip()
         except Exception as e:
@@ -474,8 +473,7 @@ def create_agent():
         vector_list,          
         search_documents,    
         write_file,          
-        execute_python,      
-        list_files         
+        execute_python       
     ]
 
     prompt = ChatPromptTemplate.from_template(
@@ -493,8 +491,7 @@ Observation: (результат выполнения инструмента)
 (ты можешь повторять Thought/Action/Action Input/Observation несколько раз)
 Thought: (я понял результат, теперь могу ответить)
 Final Answer: (ответ пользователю)
-Если ты нашел ответ и готов ответить пользователю:
-FINAL ANSWER: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), то завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
+Если ты нашел ответ и готов ответить пользователю: FINAL ANSWER: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), после этого завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
 
 Начало работы:
 Question: {input}
@@ -511,12 +508,14 @@ Thought: {agent_scratchpad}"""
         tools=tools,
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=3,
+        max_iterations=5,
         early_stopping_method="generate"
     )
     
     return agent_executor
 
+def safe_exit():
+    os._exit(0)
 
 def main():
     if not Path(MODEL_PATH).exists():
@@ -535,7 +534,8 @@ def main():
     print("  /exit - выход")
     print("\n")
     
-    while True:
+    running = True
+    while running:
         try:
             query = input("\n > ").strip()
             
@@ -543,7 +543,8 @@ def main():
                 continue
             
             if query.lower() in ['/exit', '/quit']:
-                break
+                running=False
+                safe_exit()
             
             if query.lower() == '/help':
                 print("  • vector_list - список файлов")
