@@ -24,7 +24,7 @@ from document_parser import DocumentProcessor
 from prompts import DocumentSearchPrompt, EnhancedNameSearchPrompt, NumericValueSearchPrompt, KeywordSearchPrompt, UnifiedRAGPrompt
 
 
-MODEL_PATH = "D:/AI/Llama/models/deepseek-r1-qwen3-8b-q4_k_m.gguf"
+MODEL_PATH = "./models/deepseek-r1-qwen3-8b-q4_k_m.gguf"
 MEMORY_PATH = "./agent_vector_store"
 MEMORY_COLLECTION = "conversations"  
 DOCS_COLLECTION = "documents"     
