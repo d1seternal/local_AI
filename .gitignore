@@ -21,6 +21,7 @@ chroma_db/
 rag_data/
 agent_data/
 agent_vector_store/
+.vscode/
 *.bin
 *.safetensors
 *.sqlite3
