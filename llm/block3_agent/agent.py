@@ -63,7 +63,7 @@ except ImportError:
     DOCX_SUPPORT = False
     print("Установите: pip install python-docx")
 
-MODEL_PATH="D:/AI/Llama/models/deepseek-r1-qwen3-8b-q4_k_m.gguf"
+MODEL_PATH="./models/deepseek-r1-qwen3-8b-q4_k_m.gguf"
 RAG_APP_PATH = Path("main_llm_rag.py")
 DATA_DIR = Path("agent_data")
 DATA_DIR.mkdir(exist_ok=True)
