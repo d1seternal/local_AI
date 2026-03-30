@@ -4,25 +4,60 @@
 """
 
 import os
+from pathlib import Path
 import re
 import time
 from typing import Dict, Optional, List
 import psutil
-import json
 from datetime import datetime
 from llama_cpp import Llama
 from pydantic import BaseModel, Field
+import argparse
+import json
+import sys
+import traceback
+import io
 
-from memory import VectorMemory 
-from reranker import LocalLLMReranker 
-from document_parser import DocumentProcessor
-from prompts import DocumentSearchPrompt, EnhancedNameSearchPrompt, NumericValueSearchPrompt, KeywordSearchPrompt, UnifiedRAGPrompt
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from shared.__init__ import (
+    VectorMemory,
+    DocumentProcessor,
+    LocalLLMReranker,
+    DocumentSearchPrompt,
+    MODEL_PATH,
+    MEMORY_PATH,
+    MEMORY_COLLECTION,
+    DOCS_COLLECTION,
+    EMBEDDING_MODEL
+)
 
 
-MODEL_PATH = "./models/yarn-mistral-7b-64k.Q4_K_M.gguf"
-MEMORY_PATH = "./rag_data"
-MEMORY_COLLECTION = "conversations"  
-DOCS_COLLECTION = "documents"     
+_shared_llm = None
+_shared_benchmark = None
+_shared_memory = None
+_shared_processor = None
+
+def set_shared_components(llm, benchmark=None, memory=None, processor=None):
+    global _shared_llm, _shared_benchmark, _shared_memory, _shared_processor
+    _shared_llm = llm
+    _shared_benchmark = benchmark
+    _shared_memory = memory
+    _shared_processor = processor
+    print("[RAG] Получены общие компоненты от агента")
+
+def get_shared_llm():
+    return _shared_llm
+
+def get_shared_benchmark():
+    return _shared_benchmark
+
+def get_shared_memory():
+    return _shared_memory
+
+def get_shared_processor():
+    return _shared_processor
 
 class ModelBenchmark:
     
@@ -141,39 +176,47 @@ def index_documents_interactive(memory):
         elif choice == '5':
             break
 
-
 def load_model(benchmark):
-    print("Загрузка GGUF модели...")
+
+    shared_llm = get_shared_llm()
+
+    if shared_llm is not None:
+        print("[RAG] Использую общую модель от агента", file=sys.stderr)
+        return shared_llm
     
-    mem_before = benchmark.get_memory_usage()
-    start_time = time.time()
-    
-    llm = Llama(
-        model_path=MODEL_PATH,
-        n_ctx=8192,                  
-        n_threads=8,                   
-        n_gpu_layers=0,                  
-        verbose=False,                    
-        seed=42,                          
-        temperature=0.5,                   
-        top_p=0.9,
-        chat_format="mistral-instruct"    # можно использовать необходимый формат для конкретной модели                
-    )
-    
-    load_time = time.time() - start_time
-    mem_after = benchmark.get_memory_usage()
-    
-    benchmark.metrics['load_time'] = load_time
-    benchmark.metrics['memory_before'] = mem_before
-    benchmark.metrics['memory_after'] = mem_after
-    benchmark.metrics['model_info'] = benchmark.get_model_info(llm)
-    
-    print(f"Модель загружена: {os.path.basename(MODEL_PATH)}")
-    print(f"Время загрузки: {load_time:.2f} сек")
-    print(f"Использование памяти: {mem_after['rss']:.1f} MB")
-    print(f"Потоков: {benchmark.metrics['model_info']['n_threads']}")
-    
+    else:
+        print("Загрузка GGUF модели...")
+
+        mem_before = benchmark.get_memory_usage()
+        start_time = time.time()
+        
+        llm = Llama(
+            model_path=MODEL_PATH,
+            n_ctx=32768,
+            n_threads=8,
+            n_gpu_layers=0,
+            verbose=False,
+            seed = 42,
+            temperature = 0.5,
+            top_p=0.9
+        )
+        print("[RAG] Модель загружена")
+
+        load_time = time.time() - start_time
+        mem_after = benchmark.get_memory_usage()
+        
+        benchmark.metrics['load_time'] = load_time
+        benchmark.metrics['memory_before'] = mem_before
+        benchmark.metrics['memory_after'] = mem_after
+        benchmark.metrics['model_info'] = benchmark.get_model_info(llm)
+        
+        print(f"Модель загружена: {os.path.basename(MODEL_PATH)}")
+        print(f"Время загрузки: {load_time:.2f} сек")
+        print(f"Использование памяти: {mem_after['rss']:.1f} MB")
+        print(f"Потоков: {benchmark.metrics['model_info']['n_threads']}")
+
     return llm
+
 
 def generate_with_prompts(
     llm, 
@@ -184,7 +227,6 @@ def generate_with_prompts(
     use_docs: bool = True,
     reranker = None
 ):
-
     doc_texts = []
     relevant_chunks = []
     
@@ -222,7 +264,7 @@ def generate_with_prompts(
     
     response = llm(
         full_prompt, 
-        max_tokens=350,
+        max_tokens=500,
         temperature=0.5,
         top_p=0.9, 
         echo=False
@@ -235,11 +277,6 @@ def generate_with_prompts(
     
     token_count = response['usage']['completion_tokens']
     tokens_per_second = token_count / time_taken if time_taken > 0 else 0
-    if session_id:
-        memory.add_message("user", query_text, session_id=session_id)
-        memory.add_message("assistant", raw_answer, session_id=session_id)
-    
-    benchmark.add_query_result(query_text, raw_answer, token_count, time_taken, tokens_per_second)
 
     return raw_answer, token_count, time_taken, tokens_per_second
 
@@ -446,7 +483,6 @@ def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
             
         except Exception as e:
             print(f"\nОшибка: {e}")
-            import traceback
             traceback.print_exc()
 
 def chat_session(memory):
@@ -690,8 +726,99 @@ def chat_with_document_session(memory):
             print(f"\nОшибка: {e}")
 
 
-def main():
 
+# def run_cli_mode():
+
+#     if sys.platform == 'win32':
+#         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+#         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+#     parser = argparse.ArgumentParser(description="RAG-ассистент CLI")
+#     parser.add_argument("--mode", choices=["ask", "search", "index", "list", "stats", "delete"], 
+#                        required=True, help="Режим работы")
+#     parser.add_argument("--query", type=str, default="", help="Поисковый запрос или вопрос")
+#     parser.add_argument("--file", type=str, default="", help="Путь к файлу для индексации")
+#     parser.add_argument("--doc_id", type=str, default="", help="ID документа для удаления")
+#     parser.add_argument("--k", type=int, default=3, help="Количество результатов")
+#     parser.add_argument("--json", action="store_true", help="Вывод в JSON формате")
+    
+#     args = parser.parse_args()
+    
+#     shared_llm = get_shared_llm()
+#     shared_memory = get_shared_memory()
+#     shared_processor = get_shared_processor()
+    
+#     if shared_memory is not None:
+#         memory = shared_memory
+#         processor = shared_processor
+#         print("[RAG] Использую общую память от агента")
+#     else:
+#         processor = DocumentProcessor(
+#             use_docling=True,
+#             ocr_enabled=True,
+#             table_mode="accurate"
+#         )
+        
+#         memory = VectorMemory(
+#             persist_directory=MEMORY_PATH,
+#             memory_collection=MEMORY_COLLECTION,
+#             docs_collection=DOCS_COLLECTION,
+#             embedding_model="intfloat/multilingual-e5-base",
+#             doc_processor=processor
+#         )
+    
+#     if args.mode == "ask":
+#         if shared_llm is not None:
+#             llm = shared_llm
+#             benchmark = get_shared_benchmark()
+#             print("[RAG] Использую общую модель от агента")
+#         else:
+#             benchmark = ModelBenchmark()
+#             llm = load_model(benchmark)
+        
+#         reranker = LocalLLMReranker(llm, batch_size=3) 
+        
+#         answer, tokens, time_taken, speed = generate_with_prompts(
+#             llm=llm,
+#             query_text=args.query,
+#             benchmark=benchmark,
+#             memory=memory,
+#             session_id="cli_session",
+#             use_docs=True,
+#             reranker=reranker
+#         )
+
+#         if args.json:
+#             print(json.dumps({
+#                 "answer": answer,
+#                 "tokens": tokens,
+#                 "time": time_taken,
+#                 "speed": speed
+#             }, ensure_ascii=False))
+#         else:
+#             print(answer)
+    
+#     elif args.mode == "search":
+#         results = memory.search_with_rerank(args.query)
+        
+#         if args.json:
+#             json_results = []
+#             for r in results:
+#                 json_results.append({
+#                     "text": r['text'],
+#                     "relevance_score": r['relevance_score'],
+#                     "metadata": r['metadata']
+#                 })
+#             print(json.dumps(json_results, ensure_ascii=False, default=str))
+#         else:
+#             for i, r in enumerate(results, 1):
+#                 filename = r['metadata'].get('filename', 'unknown')
+#                 score = r['relevance_score'] * 100
+#                 print(f"{i}. [{score:.0f}%] {filename}")
+#                 print(f"   {r['text'][:200]}...\n")
+
+
+def main():
     processor = DocumentProcessor(
         use_docling=True,
         ocr_enabled=True, 
@@ -703,7 +830,7 @@ def main():
         persist_directory=MEMORY_PATH,
         memory_collection=MEMORY_COLLECTION,
         docs_collection=DOCS_COLLECTION,
-        embedding_model="intfloat/multilingual-e5-base",
+        embedding_model=EMBEDDING_MODEL,
         doc_processor=processor
     )
     
@@ -731,6 +858,11 @@ def main():
             break
         else:
             print("Неверный выбор. Пожалуйста, выберите от 1 до 4")
-            
+
+# if __name__ == "__main__":
+#     if len(sys.argv) > 1 and sys.argv[1] in ['--mode', '-m']:
+#         run_cli_mode()
+#     else:
+#         main()
 if __name__ == "__main__":
     main()
