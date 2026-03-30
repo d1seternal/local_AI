@@ -36,25 +36,23 @@ import torch
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
-try:
-    from main_llm_rag import (
-        generate_with_prompts,      
-        DocumentProcessor,          
+from shared.__init__ import (
+    VectorMemory as BaseVectorMemory,
+    DocumentProcessor,
+    MODEL_PATH,
+    DATA_DIR,
+    EMBEDDING_MODEL
+)
+from block2_memory.main_llm_rag import (
+        generate_with_prompts,               
         ModelBenchmark,          
         extract_keywords,            
-        clean_model_output,        
-        DocumentSearchPrompt,       
-        LocalLLMReranker,
+        clean_model_output,            
         load_model       
     )
-    from memory import VectorMemory as RAGVectorMemory
-    RAG_AVAILABLE = True
-    print("RAG-модуль успешно импортирован")
-except ImportError as e:
-    RAG_AVAILABLE = False
-    print(f"Ошибка импорта RAG: {e}")
-
 
 try:
     from docx import Document as DocxDocument
@@ -62,13 +60,6 @@ try:
 except ImportError:
     DOCX_SUPPORT = False
     print("Установите: pip install python-docx")
-
-MODEL_PATH="D:/AI/Llama/models/deepseek-r1-qwen3-8b-q4_k_m.gguf"
-RAG_APP_PATH = Path("main_llm_rag.py")
-DATA_DIR = Path("agent_data")
-DATA_DIR.mkdir(exist_ok=True)
-VECTOR_DB_PATH = Path("agent_vector_store")
-VECTOR_DB_PATH.mkdir(exist_ok=True)
 
 
 def _format_size(size: int) -> str:
@@ -89,42 +80,11 @@ def list_files() -> str:
     except Exception as e:
         return f"Ошибка: {str(e)}"
 
-class VectorMemory(RAGVectorMemory):
-    def __init__(
-            self, 
-            persist_directory: str = "./agent_vector_store"
-            ):
-        super().__init__(
-            persist_directory=persist_directory,
-            memory_collection="conversations",
-            docs_collection="documents",
-            embedding_model="intfloat/multilingual-e5-base"
-        )
-        
-        self.rag_llm = None
-        self.rag_benchmark = None
-    
-    def _get_embedding(self, text: str, is_query: bool = False) -> List[float]:
-        if "e5" in "intfloat/multilingual-e5-base":
-            prefix = "query: " if is_query else "passage: "
-            text = prefix + text
-        
-        embedding = self.embedding_model.encode(text, normalize_embeddings=True)
-        return embedding.tolist()
-    
-   
+class VectorMemory(BaseVectorMemory):
     def set_rag_components(self, llm, benchmark):
         self.rag_llm = llm
         self.rag_benchmark = benchmark
-        print("RAG компоненты установлены в VectorMemory")
-    
-    def add_document(self, file_path: str, doc_id: str = None) -> str:
-        try:
-            chunks = self.index_document(file_path, doc_id=doc_id)
-            return f"Добавлено {chunks} фрагментов из {Path(file_path).name}"
-        except Exception as e:
-            return f"Ошибка: {str(e)}"
-
+        print("RAG компоненты установлены.")
 
     def search_with_rag(self, query: str) -> str:
         try:
@@ -159,98 +119,7 @@ class VectorMemory(RAGVectorMemory):
             print(f"Ошибка RAG поиска: {e}")
             return f"Ошибка: {str(e)}"  
         
-
-    def search(self, query: str, k: int = 3, score_threshold: float = 0.5) -> str:
-        """
-        Поиск в векторной памяти
-        
-        Args:
-            query: str - поисковый запрос
-            k: int - количество результатов
-            score_threshold: float - порог релевантности
-        
-        Returns:
-            str - отформатированные результаты
-        """
-        try:
-            clean_query = str(query).strip('"\'{}[]() ')
-            
-            if not clean_query:
-                return "Пустой запрос"
-            
-            query_embedding = self._get_embedding(clean_query, is_query=True)
-            results = self.docs_collection.query(
-                query_embeddings=[query_embedding],
-                n_results=k * 2  
-            )
-            
-            if not results['ids'][0]:
-                return f"По запросу '{clean_query}' ничего не найдено"
-            
-            formatted = []
-            for i in range(len(results['ids'][0])):
-                distance = results['distances'][0][i] if results['distances'] else 1.0
-                score = max(0, 1 - distance / 2)
-                
-                if score >= score_threshold:
-                    metadata = results['metadatas'][0][i]
-                    formatted.append({
-                        "text": results['documents'][0][i],
-                        "metadata": metadata,
-                        "relevance_score": score
-                    })
-
-            formatted.sort(key=lambda x: x['relevance_score'], reverse=True)
-            formatted = formatted[:k]
-
-            output = [f"Результаты поиска: '{clean_query}'\n"]
-            
-            for i, r in enumerate(formatted, 1):
-                relevance = r['relevance_score'] * 100
-                filename = r['metadata'].get('filename', 'неизвестно')
-                chunk_idx = r['metadata'].get('chunk_index', 0)
-                total = r['metadata'].get('chunk_total', 1)
-                
-                text = r['text'][:700] + ("..." if len(r['text']) > 700 else "")
-                
-                output.append(f"{i}. **[{relevance:.0f}%]** {filename} (фрагмент {chunk_idx+1}/{total})")
-                output.append(f"  {text}\n")
-            
-            return "\n".join(output)
-            
-        except Exception as e:
-            return f"Ошибка при поиске: {str(e)}"
-    
-    def list_documents(self) -> str:
-        try:
-            results = self.docs_collection.get()
-            
-            docs = {}
-            for metadata in results['metadatas']:
-                doc_id = metadata.get('doc_id')
-                if doc_id and doc_id not in docs:
-                    docs[doc_id] = {
-                        "filename": metadata.get('filename', 'unknown'),
-                        "chunks": 0,
-                        "timestamp": metadata.get('timestamp', 0)
-                    }
-                if doc_id:
-                    docs[doc_id]['chunks'] += 1
-            
-            if not docs:
-                return "Векторная память пуста"
-            
-            output = ["Документы в памяти: "]
-            for doc_id, info in sorted(docs.items(), key=lambda x: x[1]['timestamp'], reverse=True):
-                timestamp = datetime.fromtimestamp(info['timestamp']).strftime('%Y-%m-%d %H:%M')
-                output.append(f"  • {info['filename']} ({info['chunks']} фрагментов) - {timestamp}")
-            
-            return "\n".join(output)
-            
-        except Exception as e:
-            return f"Ошибка: {str(e)}"
-        
-vector_memory = VectorMemory(persist_directory="./agent_vector_store")
+vector_memory = VectorMemory()
 
 class AgentLLM(LLM):
     shared_llm: Any = None
@@ -268,7 +137,7 @@ class AgentLLM(LLM):
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
                 temperature=0.5,
-                stop=["Observation:", "User:", "FINAL ANSWER:", "\n\n"]
+                stop=stop or ["Observation:", "User:", "FINAL ANSWER:", "Assistant:"]
             )
             return response['choices'][0]['message']['content'].strip()
         except Exception as e:
@@ -477,25 +346,63 @@ def create_agent():
     ]
 
     prompt = ChatPromptTemplate.from_template(
-        """Ты - ползеный AI-ассистент для работы с документами и файлами. Сегодня {date}.
+        """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
 
 Доступные инструменты:
 {tools}
 Имена инструментов: {tool_names}
-Используй следующий формат:
+Генерировать верную информацию тебе помогут следующие принципы:
 Question: {input}
 Thought: (твои мысли и рассуждения на тему того, что нужно сделать)
 Action: (название инструмента из списка)
 Action Input: (входные данные для инструмента в формате JSON)
 Observation: (результат выполнения инструмента)
-(ты можешь повторять Thought/Action/Action Input/Observation несколько раз)
-Thought: (я понял результат, теперь могу ответить)
+(ты можешь повторять Thought/Action/Action Input/Observation несколько раз для получения более четкого ответа)
+Thought: (результат получен, можно отвечать)
 Final Answer: (ответ пользователю)
-Если ты нашел ответ и готов ответить пользователю: FINAL ANSWER: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), после этого завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
+
+Если ты нашел ответ и готов ответить пользователю:
+- FINAL ANSWER: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), то завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
+
+Никогда не пиши комментарии, заметки или пояснения, выходящие за рамки этого формата.
+Никогда не пиши ничего вроде "Подожду результат..." и другие комментарии после Action Input
+После Action Input идет исключительно Observation с полученным результатом
+
+Пример работы после Action Input:
+- Observation: Успешно добавлено 60 фрагментов из файла dogovor.docx в векторную базу.
+- Thought: Файл успешно обработан и добавлен в векторную базу. Теперь у меня есть информация для ответа.
+- FINAL ANSWER: Файл добавлен в память. Успешно добавлено 60 фрагментов из файла dogovor.docx
 
 Начало работы:
 Question: {input}
 Thought: {agent_scratchpad}"""
+
+#         """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
+# **Инструкции**:
+#     -проанализируй задачу 
+#     -проанлизируй историю 
+#     -выбери подходящий инструмент или FINISH, если задача была выполнена. 
+#     -Action: (название инструмента из списка)
+#     -Action Input: (входные данные для инструмента в формате JSON)
+#     -если ты уже вызывал инструмент с такими аргументами и  инструмент был выполнен успешно, то не вызывай его снова. Переходи к следующему инструменту или к FINISH.
+#     -если ты выбираешь FINISH, то [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"),  после этого завершай свою генерацию и ожидай новый запрос пользователя""
+
+     
+# **Ответ в формате JSON**:
+#     {{
+#         "action": "имя_инструмента",
+#         "action_input": {{
+#             "arg1": "значение",
+#             "arg2": "значение"
+#         }},
+#         "though": "обоснование выбора инструмента"
+#     }}
+# Начало работы:
+# - Question: {input}
+# - Thought: {agent_scratchpad}
+        
+# Верни только ответ сторого в формате JSON со всеми заполненными полями. Не добавляй других слов и комментариев
+
     )
     agent = create_react_agent(
         llm=llm,
@@ -508,7 +415,7 @@ Thought: {agent_scratchpad}"""
         tools=tools,
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=5,
+        max_iterations=4,
         early_stopping_method="generate"
     )
     
@@ -516,6 +423,7 @@ Thought: {agent_scratchpad}"""
 
 def safe_exit():
     os._exit(0)
+
 
 def main():
     if not Path(MODEL_PATH).exists():
@@ -542,7 +450,7 @@ def main():
             if not query:
                 continue
             
-            if query.lower() in ['/exit', '/quit']:
+            if query.lower() in ['/exit', '/quit', 'exit', 'quit']:
                 running=False
                 safe_exit()
             
