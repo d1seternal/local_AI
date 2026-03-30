@@ -21,9 +21,14 @@ chroma_db/
 rag_data/
 agent_data/
 agent_vector_store/
+sessions/
 .vscode/
 *.bin
 *.safetensors
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+gradio_cached_examples/
+sessions/*.json
+*.local
+config.local.py
