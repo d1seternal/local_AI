@@ -21,7 +21,7 @@ set FORCE_CMAKE=1
 pip install llama-cpp-python --force-reinstall --no-cache-dir #Intel MKL;подключаемые библиотеки располагаются в соответствующих папках директории установленной anaconda
 ```
 ## Requirements.txt (текущие в проекте):
-conda==26.1.1<br>cmake==3.29.5-msvc4<br>llama-cpp-python==0.3.16<br>torch==2.10.0<br>chromadb==1.5.2<br>sentence-transformers==5.2.3<br>PyPDF2==3.0.1<br>python-docx==1.2.0<br>python==3.11.4<br>huggingface-hub==0.36.2<br>docling[complete]==2.77.0<br>pandas==2.3.3<br>tabulate==0.9.0<br>langchain==1.2.11<br>gradio==6.10.0
+conda==26.1.1<br>cmake==3.29.5-msvc4<br>llama-cpp-python==0.3.16<br>torch==2.10.0<br>chromadb==1.5.2<br>sentence-transformers==5.2.3<br>PyPDF2==3.0.1<br>python-docx==1.2.0<br>python==3.11.4<br>huggingface-hub==0.36.2<br>docling[complete]==2.77.0<br>pandas==2.3.3<br>tabulate==0.9.0<br>langchain==1.2.11<br>gradio==4.26.0
 ## Структура проекта:
 ```mermaid
 graph TD
@@ -35,25 +35,24 @@ graph TD
             
             subgraph B2[block2]
                 B2F1[main_llm_rag.py]
-                B2F2[memory.py]
-                B2F3[document_parser.py]
-                B2F4[prompts.py]
-                B2F5[reranker.py]
             end
             
             subgraph B3[block3]
-                B3F1[main_llm_rag.py]
-                B3F2[memory.py]
-                B3F3[document_parser.py]
-                B3F4[prompts.py]
-                B3F5[reranker.py]
-                B3F6[agent.py]
+                B3F1[agent.py]
             end
             
-            subgraph B4[block4]
-                
+            subgraph B4[shared]
+                B4F1[memory.py]
+                B4F2[document_parser.py]
+                B4F3[prompts.py]
+                B4F4[reranker.py]
+                B4F5[__init.py]
+                B4F6[config.py]
+                B4F7[session_manager.py]
             end
-            
+            subgraph B5[block4]
+                B5F1[app.py]
+            end
             subgraph FP[final_project]
                 
             end
