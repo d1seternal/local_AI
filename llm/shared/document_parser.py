@@ -235,7 +235,7 @@ class DocumentProcessor:
                         )
                     )
             
-            print(f"DOCX обработан: {len(chunks)} чанков, {len(tables_info)} таблиц")
+            print(f"DOCX обработан: {len(chunks)} чанков, {len(tables_info)} таблиц\n")
             
             return DocumentProcessingResult(
                 text=full_text,

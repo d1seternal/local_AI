@@ -33,7 +33,7 @@ except ImportError:
     print("поддержка DOCX отключена")
 
 
-from shared.config import DATA_DIR, MEMORY_PATH, CHUNK_SIZE, CHUNK_OVERLAP,  DOCS_COLLECTION, MEMORY_COLLECTION, EMBEDDING_MODEL
+from shared.config import DATA_DIR, MEMORY_PATH, CHUNK_SIZE, CHUNK_OVERLAP,  DOCS_COLLECTION, EMBEDDING_MODEL
 from shared.reranker import LocalLLMReranker
 from shared.document_parser import DocumentProcessor
 from shared.prompts import DocumentSearchPrompt, EnhancedNameSearchPrompt, NumericValueSearchPrompt, KeywordSearchPrompt, UnifiedRAGPrompt
@@ -43,7 +43,6 @@ class VectorMemory:
     def __init__(
         self,
         persist_directory = str(MEMORY_PATH),
-        memory_collection = MEMORY_COLLECTION,
         docs_collection = DOCS_COLLECTION,
         embedding_model = EMBEDDING_MODEL,
         doc_processor: Optional[DocumentProcessor] = None,
@@ -57,7 +56,6 @@ class VectorMemory:
             self.doc_processor = doc_processor
         
         self.persist_directory = pathlib.Path(persist_directory)
-        self.memory_collection_name = memory_collection
         self.docs_collection_name = docs_collection
         self.embedding_model_name = embedding_model
         self.chunk_size = chunk_size
@@ -69,10 +67,47 @@ class VectorMemory:
         
         self._init_embeddings()
         self._init_chromadb()
+
+    def _init_embeddings(self):
+        print(f"Загрузка модели эмбеддингов: {self.embedding_model_name}")
+        start_time = time.time()
+        device = "cpu"
+        
+        self.embedding_model = SentenceTransformer(
+            self.embedding_model_name,
+            device=device
+        )
+        
+        print(f"Модель загружена за {time.time() - start_time:.2f} сек")
+
+    def _init_chromadb(self):
+        print(f"Подключение к ChromaDB: /agent_vector_store")
+        self.client = chromadb.PersistentClient(
+            path=str(self.persist_directory),
+            settings=Settings(anonymized_telemetry=False)
+        )
+
+        try:
+            self.docs_collection = self.client.get_collection(self.docs_collection_name)
+            print(f"Подключено к существующей коллекции документов")
+        except Exception as e:
+            self.docs_collection = self.client.create_collection(
+                name=self.docs_collection_name,
+                metadata={"hnsw:space":"cosine"}
+            )
+            print(f"Создана новая коллекция документов")
+    
+    def _get_embedding(self, text: str, is_query: bool = False) -> List[float]:
+        if "e5" in self.embedding_model_name:
+            prefix = "query: " if is_query else "passage: "
+            text = prefix + text
+        
+        embedding = self.embedding_model.encode(text, normalize_embeddings=True)
+        return embedding.tolist()
     
     def index_document(self, file_path: str, doc_id: Optional[str] = None) -> int:
         raw_input = str(file_path)
-        print(f"Получено для индексации: '{raw_input}'")
+        print(f"\nПолучено для индексации: '{raw_input}'")
         
         try:
             parsed = json.loads(raw_input)
@@ -168,11 +203,17 @@ class VectorMemory:
             )
             
         return len(result.chunks)
-    
+
     def add_document(self, file_path: str, doc_id: str = None) -> str:
+        filename = Path(file_path).name
+        
+        existing_docs = self.list_documents()
+        for doc in existing_docs:
+            if doc.get('filename') == filename:
+                return f"Файл '{filename}' уже существует в памяти. Пропускаем добавление."
         try:
             chunks = self.index_document(file_path, doc_id=doc_id)
-            return f"Добавлено {chunks} фрагментов из {Path(file_path).name}"
+            return f"Добавлено {chunks} фрагментов из {filename}"
         except Exception as e:
             return f"Ошибка: {str(e)}"
     
@@ -208,117 +249,6 @@ class VectorMemory:
                         "relevance_score": score
                     })
         formatted.sort(key=lambda x: x['relevance_score'], reverse=True)
-        return formatted[:k]
-
-    def _init_embeddings(self):
-        print(f"Загрузка модели эмбеддингов: {self.embedding_model_name}")
-        start_time = time.time()
-        device = "cpu"
-        
-        self.embedding_model = SentenceTransformer(
-            self.embedding_model_name,
-            device=device
-        )
-        
-        print(f"Модель загружена за {time.time() - start_time:.2f} сек")
-
-    def _init_chromadb(self):
-        print(f"Подключение к ChromaDB: {self.persist_directory}")
-        self.client = chromadb.PersistentClient(
-            path=str(self.persist_directory),
-            settings=Settings(anonymized_telemetry=False)
-        )
-        
-        try:
-            self.memory_collection = self.client.get_collection(self.memory_collection_name)
-            print(f"Подключено к существующей истории")
-        except Exception as e:
-            self.memory_collection = self.client.create_collection(
-                name=self.memory_collection_name,
-                metadata={"hnsw:space":"cosine"}
-            )
-            print(f"Создана новая история")
-
-        try:
-            self.docs_collection = self.client.get_collection(self.docs_collection_name)
-            print(f"Подключено к существующей коллекции документов")
-        except Exception as e:
-            self.docs_collection = self.client.create_collection(
-                name=self.docs_collection_name,
-                metadata={"hnsw:space":"cosine"}
-            )
-            print(f"Создана новая коллекция документов")
-    
-    def _get_embedding(self, text: str, is_query: bool = False) -> List[float]:
-        if "e5" in self.embedding_model_name:
-            prefix = "query: " if is_query else "passage: "
-            text = prefix + text
-        
-        embedding = self.embedding_model.encode(text, normalize_embeddings=True)
-        return embedding.tolist()
-
-    def add_message(
-        self,
-        role: str,
-        content: str,
-        session_id: str = "default",
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> str:
-        full_text = f"{role}: {content}"
-        doc_id = str(uuid.uuid4())
-        embedding = self._get_embedding(full_text)
-        
-        meta = {
-            "role": role,
-            "session_id": session_id,
-            "timestamp": time.time(),
-            "type": "conversation",
-            "preview": content[:100]
-        }
-        if metadata:
-            meta.update(metadata)
-        
-        self.memory_collection.add(
-            embeddings=[embedding],
-            documents=[full_text],
-            metadatas=[meta],
-            ids=[doc_id]
-        )
-        
-        return doc_id
-    
-    def search_messages(
-        self,
-        query: str,
-        k: int = 3,
-        score_threshold: float = 0.5,
-        session_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        query_embedding = self._get_embedding(query, is_query=True)
-        
-        where_filter = {"session_id": session_id} if session_id else None
-        
-        results = self.memory_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k * 2,
-            where=where_filter
-        )
-        
-        formatted = []
-        if results['ids'][0]:
-            for i in range(len(results['ids'][0])):
-                distance = results['distances'][0][i] if results['distances'] else 1.0
-                score = max(0, 1 - distance / 2)
-                
-                if score >= score_threshold:
-                    formatted.append({
-                        "text": results['documents'][0][i],
-                        "role": results['metadatas'][0][i].get("role", "unknown"),
-                        "session_id": results['metadatas'][0][i].get("session_id", ""),
-                        "timestamp": results['metadatas'][0][i].get("timestamp", 0),
-                        "relevance_score": score
-                    })
-        
         return formatted[:k]
 
     def _chunk_text(self, text: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -456,38 +386,20 @@ class VectorMemory:
             initial_results.sort(key=lambda x: x['relevance_score'], reverse=True)
             return initial_results[:final_k]
         
-    def smart_search(self, question: str, k: int = 5) -> List[Dict]:
-        question_type = UnifiedRAGPrompt.detect_question_type(question)
-        keywords = self._extract_keywords(question)
+    # def smart_search(self, question: str, k: int = 5) -> List[Dict]:
+    #     question_type = UnifiedRAGPrompt.detect_question_type(question)
+    #     keywords = self._extract_keywords(question)
         
-        results = self.search_documents(question, k=k*2)
-        if question_type == 'name':
-            results = self._filter_for_names(results, keywords)
-        elif question_type == 'numeric':
-            results = self._filter_for_numbers(results, keywords)
-        elif question_type == 'legal':
-            results = [r for r in results if r['relevance_score'] > 0.7]
+    #     results = self.search_documents(question, k=k*2)
+    #     if question_type == 'name':
+    #         results = self._filter_for_names(results, keywords)
+    #     elif question_type == 'numeric':
+    #         results = self._filter_for_numbers(results, keywords)
+    #     elif question_type == 'legal':
+    #         results = [r for r in results if r['relevance_score'] > 0.7]
         
-        return results[:k]
+    #     return results[:k]
     
-    def get_session_messages(self, session_id: str, limit: int = 50) -> List[Dict]:
-        results = self.memory_collection.get(
-            where={"session_id": session_id},
-            limit=limit
-        )
-        
-        messages = []
-        if results['ids']:
-            for i in range(len(results['ids'])):
-                messages.append({
-                    "id": results['ids'][i],
-                    "text": results['documents'][i],
-                    "metadata": results['metadatas'][i]
-                })
-
-        messages.sort(key=lambda x: x['metadata'].get('timestamp', 0))
-        
-        return messages
 
     def list_documents(self) -> List[Dict[str, Any]]:
         results = self.docs_collection.get()
@@ -534,7 +446,6 @@ class VectorMemory:
             "memory_messages": self.count_memory(),
             "document_chunks": self.count_documents(),
             "documents": len(self.list_documents()),
-            "memory_collection": self.memory_collection_name,
             "docs_collection": self.docs_collection_name,
             "embedding_model": self.embedding_model_name
         }

@@ -25,6 +25,7 @@ from shared.prompts import (
     KeywordSearchPrompt,
     UnifiedRAGPrompt
 )
+from shared.session_manager import SessionManager
 
 
 __all__ = [
@@ -43,6 +44,7 @@ __all__ = [
     'MODEL_TEMPERATURE',
     'MODEL_TOP_P',
     'VectorMemory',
+    'SessionManager',
     'DocumentProcessor',
     'LocalLLMReranker',
     'DocumentSearchPrompt',
