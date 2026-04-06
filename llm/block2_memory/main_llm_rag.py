@@ -221,9 +221,8 @@ def load_model(benchmark):
 def generate_with_prompts(
     llm, 
     query_text: str, 
-    benchmark, 
+    benchmark,
     memory, 
-    session_id: str = "default", 
     use_docs: bool = True,
     reranker = None
 ):
@@ -264,7 +263,7 @@ def generate_with_prompts(
     
     response = llm(
         full_prompt, 
-        max_tokens=500,
+        max_tokens=375,
         temperature=0.5,
         top_p=0.9, 
         echo=False
@@ -533,10 +532,9 @@ def choose_document(memory) -> Optional[Dict]:
 def generate_with_document(
     llm, 
     query_text: str, 
-    benchmark, 
     memory, 
     doc_id: str, 
-    session_id: str = "default",
+
     reranker = None
 ):
     keywords = extract_keywords(query_text)
@@ -624,12 +622,6 @@ def generate_with_document(
     
     token_count = response['usage']['completion_tokens']
     tokens_per_second = token_count / time_taken if time_taken > 0 else 0
-
-    if session_id:
-        memory.add_message("user", query_text, session_id=session_id)
-        memory.add_message("assistant", answer, session_id=session_id)
-    
-    benchmark.add_query_result(query_text, answer, token_count, time_taken, tokens_per_second)
     
     return answer, token_count, time_taken, tokens_per_second
 
