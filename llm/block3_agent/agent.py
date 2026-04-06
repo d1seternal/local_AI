@@ -41,6 +41,7 @@ sys.path.insert(0, str(project_root))
 
 from shared.__init__ import (
     VectorMemory as BaseVectorMemory,
+    SessionManager,
     DocumentProcessor,
     MODEL_PATH,
     DATA_DIR,
@@ -61,6 +62,8 @@ except ImportError:
     DOCX_SUPPORT = False
     print("Установите: pip install python-docx")
 
+agent_executor = None
+current_session_id = None
 
 def _format_size(size: int) -> str:
     for unit in ['Б', 'КБ', 'МБ', 'ГБ']:
@@ -99,7 +102,6 @@ class VectorMemory(BaseVectorMemory):
                 query_text=clean_query,
                 benchmark=self.rag_benchmark,
                 memory=self,               
-                session_id="agent_search",
                 use_docs=True,
                 reranker=None
             )
@@ -121,6 +123,8 @@ class VectorMemory(BaseVectorMemory):
         
 vector_memory = VectorMemory()
 
+session_memory = SessionManager()
+
 class AgentLLM(LLM):
     shared_llm: Any = None
 
@@ -131,15 +135,27 @@ class AgentLLM(LLM):
     def _llm_type(self) -> str:
         return "agent_llm"
     
+    def _clean_output(self, text: str) -> str:
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+        text = text.strip()
+        if not text:
+            return ""
+        
+        return text
+    
     def _call(self, prompt: str, stop: Optional[List[str]] = None, **kwargs) -> str:
         try:
             response = self.shared_llm.create_chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
                 temperature=0.5,
-                stop=stop or ["Observation:", "User:", "FINAL ANSWER:", "Assistant:"]
+                stop=stop or ["User:", "FINAL ANSWER:", "Assistant:"]
             )
-            return response['choices'][0]['message']['content'].strip()
+           
+            output = response['choices'][0]['message']['content'].strip()
+            output = self._clean_output(output)
+            return output
+        
         except Exception as e:
             return f"Ошибка: {str(e)}"
 
@@ -156,19 +172,6 @@ def vector_add(filepath: str) -> str:
     """
     return vector_memory.add_document(filepath)
 
-# @tool
-# def vector_search(query: str) -> str:
-#     """
-#     Поиск информации в векторной памяти.
-    
-#     Аргументы:
-#         query: str - поисковый запрос
-    
-#     Возвращает:
-#         str - найденные фрагменты с релевантностью
-#     """
-#     return vector_memory.search(query, k=3)
-
 @tool
 def vector_list() -> str:
     """
@@ -177,7 +180,10 @@ def vector_list() -> str:
     Возвращает:
         str - список документов с количеством фрагментов
     """
-    return vector_memory.list_documents()
+    docs = vector_memory.list_documents()
+    if not docs:
+        return "Нет документов"
+    return "\n".join([f"• {d['filename']} ({d['chunks']} фрагментов)" for d in docs])
 
 
 @tool
@@ -235,7 +241,7 @@ def write_file(filepath: str, content: str, append: bool = False) -> str:
                         doc_to_delete = doc.get('doc_id')
                         break
                 
-                if doc_to_delete:
+                if doc_to_delete: 
                     vector_memory.delete_document(doc_to_delete)
                     result_msg += f"\nСтарая версия удалена из памяти"
                 
@@ -319,9 +325,10 @@ def execute_python(code: str) -> str:
 
 
 def create_agent():
+    global agent_executor
     print("Загрузка GGUF модели...")
     shared_llm = Llama(
-        model_path=MODEL_PATH,
+        model_path=str(MODEL_PATH),
         n_ctx=32768,
         n_threads=8,
         n_gpu_layers=0,
@@ -331,9 +338,10 @@ def create_agent():
     )
     print("Модель загружена")
     
-    class Benchmark:
-        pass
-    benchmark = Benchmark()
+    class B_Benchmark:
+        def add_query_result(self, *args, **kwargs): pass
+
+    benchmark = B_Benchmark()
     vector_memory.set_rag_components(shared_llm, benchmark)
     llm = AgentLLM(shared_llm=shared_llm)
 
@@ -345,8 +353,28 @@ def create_agent():
         execute_python       
     ]
 
+    for tool in tools:
+        tool.return_direct = True
+
     prompt = ChatPromptTemplate.from_template(
         """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
+
+Никогда не пиши комментарии, заметки или пояснения, выходящие за рамки этого формата.
+Никогда не пиши ничего вроде "Подожду результат..." и другие комментарии после Action Input
+После Action Input идет исключительно Observation с полученным результатом
+Если какой-нибудь инструмент был выполнен успешно, вернув результат, то не делай его снова. Просто бери готовый результат
+Если пользователь интересуется информацией не по документам, или в запросе отсутствует название файла, то отвечай в свободном виде, исходя из своих имеющихся данных, не ищи информацию в документах.
+Если информация для ответа не была найдена, то выводи одно сообщение "информация не найдена". Не нужно выводить шаблоны для ответа из промптов.
+Не используй теги <think> или </think>
+Не добавляй рассуждения в тегах
+Не используй **жирный текст** или маркдаун
+Не добавляй лишние слова перед Action
+На запрос пользователя обязательно нужно вернуть четкий ответ. Не добавляй других слов и комментариев. Если идет последний цикл генерации, а конкретный ответ не найден, то выводи информацию "данные не найдены"
+Если ты нашел ответ и готов ответить пользователю:
+- FINAL ANSWER: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), то завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
+FINAL ANSWER должен быть кратким
+Не выводи JSON в FINAL ANSWER
+Не рассуждай в FINAL ANSWER
 
 Доступные инструменты:
 {tools}
@@ -358,50 +386,23 @@ Action: (название инструмента из списка)
 Action Input: (входные данные для инструмента в формате JSON)
 Observation: (результат выполнения инструмента)
 (ты можешь повторять Thought/Action/Action Input/Observation несколько раз для получения более четкого ответа)
-Thought: (результат получен, можно отвечать)
-Final Answer: (ответ пользователю)
+FINAL ANSWER: (ответ пользователю)
 
-Если ты нашел ответ и готов ответить пользователю:
-- FINAL ANSWER: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), то завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
-
-Никогда не пиши комментарии, заметки или пояснения, выходящие за рамки этого формата.
-Никогда не пиши ничего вроде "Подожду результат..." и другие комментарии после Action Input
-После Action Input идет исключительно Observation с полученным результатом
-
-Пример работы после Action Input:
-- Observation: Успешно добавлено 60 фрагментов из файла dogovor.docx в векторную базу.
-- Thought: Файл успешно обработан и добавлен в векторную базу. Теперь у меня есть информация для ответа.
-- FINAL ANSWER: Файл добавлен в память. Успешно добавлено 60 фрагментов из файла dogovor.docx
+Few-shot пример:
+    Question: Что такое неустойка?
+    Thought: Нужно найти определение в документе doc.docx
+    Action: search_documents
+    Action Input: ({{query}} : "определение неустойки в документе") (в формате JSON)
+    Observation: Неустойка - денежная сумма, которую должник обязан уплатить...
+    Thought: Нашел ответ в документах
+    FINAL ANSWER: Неустойка - денежная сумма, которую должник обязан уплатить кредитору в случае неисполнения обязательств (ст. 330 ГК РФ).
 
 Начало работы:
-Question: {input}
-Thought: {agent_scratchpad}"""
+    Question: {input}
+    Thought: {agent_scratchpad}
 
-#         """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
-# **Инструкции**:
-#     -проанализируй задачу 
-#     -проанлизируй историю 
-#     -выбери подходящий инструмент или FINISH, если задача была выполнена. 
-#     -Action: (название инструмента из списка)
-#     -Action Input: (входные данные для инструмента в формате JSON)
-#     -если ты уже вызывал инструмент с такими аргументами и  инструмент был выполнен успешно, то не вызывай его снова. Переходи к следующему инструменту или к FINISH.
-#     -если ты выбираешь FINISH, то [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"),  после этого завершай свою генерацию и ожидай новый запрос пользователя""
 
-     
-# **Ответ в формате JSON**:
-#     {{
-#         "action": "имя_инструмента",
-#         "action_input": {{
-#             "arg1": "значение",
-#             "arg2": "значение"
-#         }},
-#         "though": "обоснование выбора инструмента"
-#     }}
-# Начало работы:
-# - Question: {input}
-# - Thought: {agent_scratchpad}
-        
-# Верни только ответ сторого в формате JSON со всеми заполненными полями. Не добавляй других слов и комментариев
+"""
 
     )
     agent = create_react_agent(
@@ -415,24 +416,118 @@ Thought: {agent_scratchpad}"""
         tools=tools,
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=4,
-        early_stopping_method="generate"
+        max_iterations=2,
+        early_stopping_method="force"
     )
     
     return agent_executor
+
+def chat_with_session(message: str, session_id: str = None) -> tuple:
+    global current_session_id, agent_executor
+    if session_id:
+        current_session_id = session_id
+    elif current_session_id is None:
+        current_session_id = session_memory.create_session()
+    
+
+    session_memory.add_message(current_session_id, "user", message)
+    context = session_memory.get_context_string(current_session_id)
+    
+    if context:
+        full_query = f"Контекст разговора:\n{context}\n\nПользователь: {message}\nАссистент:"
+    else:
+        full_query = message
+    
+    response = agent_executor.invoke({
+        "input": full_query,
+        "date": date.today().strftime('%d.%m.%Y')
+    })
+    
+    answer = response['output']
+    session_memory.add_message(current_session_id, "assistant", answer)
+    
+    return answer, current_session_id
+
+def new_session():
+    global current_session_id
+    current_session_id = session_memory.create_session()
+    print(f"Новая сессия: {current_session_id}")
+
+
+def list_sessions():
+    sessions = session_memory.get_all_sessions()
+    if not sessions:
+        print("Нет сессий")
+        return
+    print("\nСессии:")
+    for s in sessions:
+        print(f"  {s['session_id']}: {s['title']} ({s['message_count']} сообщ)")
+
+
+def switch_session(session_id: str):
+    global current_session_id
+    if session_id in session_memory._sessions:
+        current_session_id = session_id
+        print(f"Переключено на {session_id}")
+        history = session_memory.get_history(session_id, limit=3)
+        if history:
+            print("\nПоследние сообщения:")
+            for msg in history:
+                role = "Пользователь" if msg['role'] == 'user' else "Ассистент"
+                print(f"  {role}: {msg['content'][:80]}...")
+    else:
+        print(f"Сессия {session_id} не найдена")
+
+def delete_session(session_id: str) -> str:
+    global current_session_id
+    
+    if session_id not in session_memory._sessions:
+        return f"Сессия {session_id} не найдена"
+    
+    session_memory.delete_session(session_id)
+    
+    if current_session_id == session_id:
+        current_session_id = session_memory.create_session()
+        return f"Сессия {session_id} удалена. Создана новая: {current_session_id}"
+    
+    return f"Сессия {session_id} удалена"
+
+def get_current_session_id() -> str:
+    global current_session_id
+    return current_session_id
+
+def set_current_session_id(session_id: str):
+    global current_session_id
+    if session_id in session_memory._sessions:
+        current_session_id = session_id
+        print(f"Синхронизирована сессия: {current_session_id}")
+        return True
+    return False
+
+
+def get_all_sessions() -> List[Dict]:
+    return session_memory.get_all_sessions()
+
+
+def get_session_history(session_id: str = None) -> List[Dict]:
+    if session_id is None:
+        session_id = current_session_id
+    return session_memory.get_history(session_id)
 
 def safe_exit():
     os._exit(0)
 
 
 def main():
+    global current_session_id, agent_executor
+
     if not Path(MODEL_PATH).exists():
         print(f"Модель не найдена: {MODEL_PATH}")
         print("Укажите правильный путь к модели")
         return
     
     print(f"Загрузка агента...")
-    agent = create_agent()
+    agent_executor = create_agent()
     print("Агент готов!")
     
     print("\n")
@@ -467,10 +562,9 @@ def main():
                 continue
   
             print("\nОбработка запроса...")
-            response = agent.invoke({"input": query, 
-                                    "date": date.today().strftime('%d.%m.%Y')})
-            print(f"\n{response['output']}")
-            
+            answer = chat_with_session(query)
+            print(f"\n{answer}")
+
         except KeyboardInterrupt:
             break
         except Exception as e:
