@@ -30,7 +30,13 @@ from shared.__init__ import (
     MEMORY_PATH,
     MEMORY_COLLECTION,
     DOCS_COLLECTION,
-    EMBEDDING_MODEL
+    EMBEDDING_MODEL,
+    SEED,
+    MODEL_TEMPERATURE,
+    MODEL_GPU_LAYERS,
+    MODEL_CONTEXT,
+    MODEL_THREADS,
+    MODEL_TOP_P
 )
 
 
@@ -192,13 +198,13 @@ def load_model(benchmark):
         
         llm = Llama(
             model_path=MODEL_PATH,
-            n_ctx=32768,
-            n_threads=8,
-            n_gpu_layers=0,
+            n_ctx=MODEL_CONTEXT,
+            n_threads=MODEL_THREADS,
+            n_gpu_layers=MODEL_GPU_LAYERS,
             verbose=False,
-            seed = 42,
-            temperature = 0.5,
-            top_p=0.9
+            seed = SEED,
+            temperature = MODEL_TEMPERATURE,
+            top_p=MODEL_TOP_P
         )
         print("[RAG] Модель загружена")
 
@@ -264,8 +270,8 @@ def generate_with_prompts(
     response = llm(
         full_prompt, 
         max_tokens=375,
-        temperature=0.5,
-        top_p=0.9, 
+        temperature=MODEL_TEMPERATURE,
+        top_p=MODEL_TOP_P, 
         echo=False
     )
     
@@ -318,7 +324,7 @@ def extract_keywords(question: str) -> List[str]:
 
 def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
     token_count = 0
-    MAX_TOKENS_PER_SESSION = 8192
+    MAX_TOKENS_PER_SESSION = MODEL_CONTEXT
     use_docs_context = True
     
     print(f"\nСессия: {session_id}")
@@ -471,7 +477,6 @@ def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
                 query_text=user_input, 
                 benchmark=benchmark, 
                 memory=memory, 
-                session_id=session_id,
                 use_docs=use_docs_context,
                 reranker=reranker
             )
@@ -534,7 +539,6 @@ def generate_with_document(
     query_text: str, 
     memory, 
     doc_id: str, 
-
     reranker = None
 ):
     keywords = extract_keywords(query_text)
@@ -609,8 +613,8 @@ def generate_with_document(
     response = llm(
         full_prompt, 
         max_tokens=350,
-        temperature=0.5,
-        top_p=0.9, 
+        temperature=MODEL_TEMPERATURE,
+        top_p=MODEL_TOP_P, 
         echo=False
     )
     
@@ -661,7 +665,7 @@ def chat_with_document_session(memory):
     
     session_id = f"doc_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     token_count = 0
-    MAX_TOKENS = 8192
+    MAX_TOKENS = MODEL_CONTEXT
     
     print(f"\n Сессия: {session_id}")
     print("\nКоманды:")
@@ -705,8 +709,7 @@ def chat_with_document_session(memory):
                 query_text=user_input,
                 benchmark=benchmark,
                 memory=memory,
-                doc_id=doc_id,
-                session_id=session_id
+                doc_id=doc_id
             )
             
             print(answer)
@@ -716,98 +719,6 @@ def chat_with_document_session(memory):
             
         except Exception as e:
             print(f"\nОшибка: {e}")
-
-
-
-# def run_cli_mode():
-
-#     if sys.platform == 'win32':
-#         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-#         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
-#     parser = argparse.ArgumentParser(description="RAG-ассистент CLI")
-#     parser.add_argument("--mode", choices=["ask", "search", "index", "list", "stats", "delete"], 
-#                        required=True, help="Режим работы")
-#     parser.add_argument("--query", type=str, default="", help="Поисковый запрос или вопрос")
-#     parser.add_argument("--file", type=str, default="", help="Путь к файлу для индексации")
-#     parser.add_argument("--doc_id", type=str, default="", help="ID документа для удаления")
-#     parser.add_argument("--k", type=int, default=3, help="Количество результатов")
-#     parser.add_argument("--json", action="store_true", help="Вывод в JSON формате")
-    
-#     args = parser.parse_args()
-    
-#     shared_llm = get_shared_llm()
-#     shared_memory = get_shared_memory()
-#     shared_processor = get_shared_processor()
-    
-#     if shared_memory is not None:
-#         memory = shared_memory
-#         processor = shared_processor
-#         print("[RAG] Использую общую память от агента")
-#     else:
-#         processor = DocumentProcessor(
-#             use_docling=True,
-#             ocr_enabled=True,
-#             table_mode="accurate"
-#         )
-        
-#         memory = VectorMemory(
-#             persist_directory=MEMORY_PATH,
-#             memory_collection=MEMORY_COLLECTION,
-#             docs_collection=DOCS_COLLECTION,
-#             embedding_model="intfloat/multilingual-e5-base",
-#             doc_processor=processor
-#         )
-    
-#     if args.mode == "ask":
-#         if shared_llm is not None:
-#             llm = shared_llm
-#             benchmark = get_shared_benchmark()
-#             print("[RAG] Использую общую модель от агента")
-#         else:
-#             benchmark = ModelBenchmark()
-#             llm = load_model(benchmark)
-        
-#         reranker = LocalLLMReranker(llm, batch_size=3) 
-        
-#         answer, tokens, time_taken, speed = generate_with_prompts(
-#             llm=llm,
-#             query_text=args.query,
-#             benchmark=benchmark,
-#             memory=memory,
-#             session_id="cli_session",
-#             use_docs=True,
-#             reranker=reranker
-#         )
-
-#         if args.json:
-#             print(json.dumps({
-#                 "answer": answer,
-#                 "tokens": tokens,
-#                 "time": time_taken,
-#                 "speed": speed
-#             }, ensure_ascii=False))
-#         else:
-#             print(answer)
-    
-#     elif args.mode == "search":
-#         results = memory.search_with_rerank(args.query)
-        
-#         if args.json:
-#             json_results = []
-#             for r in results:
-#                 json_results.append({
-#                     "text": r['text'],
-#                     "relevance_score": r['relevance_score'],
-#                     "metadata": r['metadata']
-#                 })
-#             print(json.dumps(json_results, ensure_ascii=False, default=str))
-#         else:
-#             for i, r in enumerate(results, 1):
-#                 filename = r['metadata'].get('filename', 'unknown')
-#                 score = r['relevance_score'] * 100
-#                 print(f"{i}. [{score:.0f}%] {filename}")
-#                 print(f"   {r['text'][:200]}...\n")
 
 
 def main():
@@ -850,11 +761,6 @@ def main():
             break
         else:
             print("Неверный выбор. Пожалуйста, выберите от 1 до 4")
-
-# if __name__ == "__main__":
-#     if len(sys.argv) > 1 and sys.argv[1] in ['--mode', '-m']:
-#         run_cli_mode()
-#     else:
-#         main()
+            
 if __name__ == "__main__":
     main()
