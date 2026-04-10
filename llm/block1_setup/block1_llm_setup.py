@@ -10,15 +10,21 @@ import json
 from datetime import datetime
 from llama_cpp import Llama
 
-
-
-MODEL_PATH = ".\models\mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+from shared.__init__ import (
+    MODEL_PATH,
+    MODEL_CONTEXT,
+    MODEL_THREADS,
+    MODEL_GPU_LAYERS,
+    MODEL_TEMPERATURE,
+    MODEL_TOP_P,
+    SEED
+)
 
 class ModelBenchmark:
     
     def __init__(self):
         self.metrics = {
-            'model_name': os.path.basename(MODEL_PATH),
+            'model_name': os.path.basename(str(MODEL_PATH)),
             'model_size_gb': 0,
             'load_time': 0,
             'total_queries': 0,
@@ -39,7 +45,7 @@ class ModelBenchmark:
         info = {
             'n_ctx': llm.context_params.n_ctx,
             'n_threads': llm.context_params.n_threads,
-            'model_size': os.path.getsize(MODEL_PATH) / 1024 / 1024 / 1024
+            'model_size': os.path.getsize(str(MODEL_PATH)) / 1024 / 1024 / 1024
         }
         return info
     
@@ -108,14 +114,14 @@ def load_model(benchmark):
     start_time = time.time()
     
     llm = Llama(
-        model_path=MODEL_PATH,
-        n_ctx=4096,                  
-        n_threads=8,                   
-        n_gpu_layers=0,                  
+        model_path=str(MODEL_PATH),
+        n_ctx=MODEL_CONTEXT,                  
+        n_threads=MODEL_THREADS,                   
+        n_gpu_layers=MODEL_GPU_LAYERS,                  
         verbose=False,                    
-        seed=42,                          
-        temperature=1.0,                   
-        top_p=0.9,
+        seed=SEED,                          
+        temperature=MODEL_TEMPERATURE,                   
+        top_p=MODEL_TOP_P,
         chat_format="mistral-instruct"    #можно использовать небходимый формат для конкретной модели (например, chatml для Phi-3-mini-4k-Q4)                
     )
     
@@ -127,7 +133,7 @@ def load_model(benchmark):
     benchmark.metrics['memory_after'] = mem_after
     benchmark.metrics['model_info'] = benchmark.get_model_info(llm)
     
-    print(f"Модель загружена: {os.path.basename(MODEL_PATH)}")
+    print(f"Модель загружена: {os.path.basename(str(MODEL_PATH))}")
     print(f"Время загрузки: {load_time:.2f} сек")
     print(f"Использование памяти: {mem_after['rss']:.1f} MB")
     print(f"Контекст: {benchmark.metrics['model_info']['n_ctx']} токенов")
@@ -141,8 +147,8 @@ def generate_with_benchmark(llm, messages, benchmark, query_text):
     response = llm.create_chat_completion(
         messages=messages,
         max_tokens=1024,                
-        temperature=1.0,                  
-        top_p=0.9                                    
+        temperature=MODEL_TEMPERATURE,                  
+        top_p=MODEL_TOP_P                                  
     )
     time_taken = time.time() - start_time
 
