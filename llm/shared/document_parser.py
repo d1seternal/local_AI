@@ -209,7 +209,15 @@ class DocumentProcessor:
                 full_text = full_text.strip()
             
             if not full_text or len(full_text) < 50:
-                return f"Не удалось извлечь текст из DOCX файла {file_path.name}"
+                return DocumentProcessingResult(
+                    text="",
+                    chunks=[],
+                    tables=[],
+                    metadata={
+                        "filename": file_path.name,
+                        "error": "Текст слишком короткий или отсутствует"
+                    }
+                )
             
             print(f"Извлечено текста: {len(full_text)} символов")
             
@@ -251,7 +259,15 @@ class DocumentProcessor:
         
         except Exception as e:
             traceback.print_exc()
-            return f"Ошибка обработки файла: {str(e)}"
+            return DocumentProcessingResult(
+                text="",
+                chunks=[],
+                tables=[],
+                metadata={
+                    "filename": file_path.name,
+                    "error": str(e)
+                }
+            )
             
     
     def _process_txt(self, file_path: pathlib.Path) -> DocumentProcessingResult:

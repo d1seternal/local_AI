@@ -161,9 +161,9 @@ class VectorMemory:
        
         result = self.doc_processor.process_document(found_path)
 
-        if result.text is None or not result.text.strip():
-            print(f"Документ {found_path.name} не содержит текста")
-            return 0
+        # if result.text is None or not result.text.strip():
+        #     print(f"Документ {found_path.name} не содержит текста")
+        #     return 0
         
         dest_path = self.documents_dir / f"{doc_id}_{found_path.name}"
         shutil.copy2(found_path, dest_path)
@@ -426,17 +426,6 @@ class VectorMemory:
             self.docs_collection.delete(ids=results['ids'])
             return len(results['ids'])
         return 0
-    
-    def delete_session(self, session_id: str) -> int:
-        results = self.memory_collection.get(where={"session_id": session_id})
-        
-        if results['ids']:
-            self.memory_collection.delete(ids=results['ids'])
-            return len(results['ids'])
-        return 0
-    
-    def count_memory(self) -> int:
-        return self.memory_collection.count()
     
     def count_documents(self) -> int:
         return self.docs_collection.count()
