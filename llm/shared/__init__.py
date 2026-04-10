@@ -12,7 +12,8 @@ from shared.config import (
     MODEL_THREADS,
     MODEL_GPU_LAYERS,
     MODEL_TEMPERATURE,
-    MODEL_TOP_P
+    MODEL_TOP_P,
+    SEED
 )
 
 from shared.memory import VectorMemory
@@ -43,6 +44,7 @@ __all__ = [
     'MODEL_GPU_LAYERS',
     'MODEL_TEMPERATURE',
     'MODEL_TOP_P',
+    'SEED',
     'VectorMemory',
     'SessionManager',
     'DocumentProcessor',

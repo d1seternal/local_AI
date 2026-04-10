@@ -19,6 +19,7 @@ MODEL_THREADS = 8
 MODEL_GPU_LAYERS = 0
 MODEL_TEMPERATURE = 0.5
 MODEL_TOP_P = 0.9
+SEED = 42
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MEMORY_PATH.mkdir(parents=True, exist_ok=True)
