@@ -45,7 +45,13 @@ from shared.__init__ import (
     DocumentProcessor,
     MODEL_PATH,
     DATA_DIR,
-    EMBEDDING_MODEL
+    EMBEDDING_MODEL,
+    MODEL_TOP_P,
+    SEED,
+    MODEL_CONTEXT,
+    MODEL_THREADS,
+    MODEL_TEMPERATURE,
+    MODEL_GPU_LAYERS
 )
 from block2_memory.main_llm_rag import (
         generate_with_prompts,               
@@ -148,7 +154,7 @@ class AgentLLM(LLM):
             response = self.shared_llm.create_chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
-                temperature=0.5,
+                temperature=MODEL_TEMPERATURE,
                 stop=stop or ["User:", "FINAL ANSWER:", "Assistant:"]
             )
            
@@ -329,11 +335,11 @@ def create_agent():
     print("Загрузка GGUF модели...")
     shared_llm = Llama(
         model_path=str(MODEL_PATH),
-        n_ctx=32768,
-        n_threads=8,
-        n_gpu_layers=0,
-        temperature=0.5,
-        top_p=0.9,
+        n_ctx=MODEL_CONTEXT,
+        n_threads=MODEL_THREADS,
+        n_gpu_layers=MODEL_GPU_LAYERS,
+        temperature=MODEL_TEMPERATURE,
+        top_p=MODEL_TOP_P,
         verbose=False
     )
     print("Модель загружена")
