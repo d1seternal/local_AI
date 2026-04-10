@@ -39,7 +39,7 @@ except Exception as e:
     traceback.print_exc()
     agent = None
     
-def upload_file(file, session_id: str) -> tuple:
+def upload_file(file) -> tuple:
             if file is None:
                 return "Файл не выбран", list_files()
             
@@ -52,12 +52,14 @@ def upload_file(file, session_id: str) -> tuple:
 
                     result = vector_memory.add_document(str(dest_path))
                     status = f"{result}"
-                    session_manager.add_uploaded_file(session_id, filename)
+                    current_id = get_current_session_id()
+                    if current_id and hasattr(session_manager, 'add_uploaded_file'):
+                        session_manager.add_uploaded_file(current_id, filename)
+        
                     sessions_list = session_manager.get_all_sessions()
                     sessions_choices = [(s['session_id'], f"{s['title']} ({s['message_count']} сообщ)") 
                                         for s in sessions_list]
-        
-                    return status, list_files(), gr.update(choices=sessions_choices), session_id
+                    return status, list_files(), gr.update(choices=sessions_choices), current_id
                 
                 except:
                     status = f"Файл сохранен: {filename}"
@@ -95,7 +97,7 @@ def chat(message, history):
     elif isinstance(message, tuple):
         user_text = str(message[0]) if message else ""
     elif isinstance(message, list):
-        user_text= "\n".join(str(item) for item in user_text)
+        user_text= "\n".join(str(item) for item in message)
     else:
         user_text = str(message)
     
@@ -108,8 +110,8 @@ def chat(message, history):
     
     try:
         answer = chat_only(user_text)
-        print(f"[DEBUG] Тип answer из агента: {type(answer)}")
-        print(f"[DEBUG] answer: {answer}")
+        print(f"Тип answer из агента: {type(answer)}")
+        print(f"answer: {answer}")
     
         return answer
     
