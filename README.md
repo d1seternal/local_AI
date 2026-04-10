@@ -21,7 +21,28 @@ set FORCE_CMAKE=1
 pip install llama-cpp-python --force-reinstall --no-cache-dir #Intel MKL;подключаемые библиотеки располагаются в соответствующих папках директории установленной anaconda
 ```
 ## Requirements.txt (текущие в проекте):
-conda==26.1.1<br>cmake==3.29.5-msvc4<br>llama-cpp-python==0.3.16<br>torch==2.10.0<br>chromadb==1.5.2<br>sentence-transformers==5.2.3<br>PyPDF2==3.0.1<br>python-docx==1.2.0<br>python==3.11.4<br>huggingface-hub==0.36.2<br>docling[complete]==2.77.0<br>pandas==2.3.3<br>tabulate==0.9.0<br>langchain==1.2.11<br>gradio==6.11.0 gradio-client==4.2.0
+conda==26.1.1<br>
+cmake==3.29.5-msvc4<br>
+llama-cpp-python==0.3.16<br>
+torch==2.10.0<br>
+chromadb==1.5.2<br>
+sentence-transformers==5.2.3<br>
+PyPDF2==3.0.1<br>
+python-docx==1.2.0<br>
+python==3.11.4<br>
+huggingface-hub==0.36.2<br>
+docling[complete]==2.77.0<br>
+pandas==2.3.3<br>
+tabulate==0.9.0<br>
+langchain==1.2.11<br>
+langchain-core==1.2.19<br>
+langchain-classic==1.0.3<br>
+langchain-community==0.4.1<br>
+langchain-text-splitters==1.1.1<br>
+gradio==6.11.0<br>
+gradio-client==2.4.0<br>
+pydantic==2.12.5<br>
+numpy==1.26.4
 ## Структура проекта:
 ```mermaid
 graph TD
