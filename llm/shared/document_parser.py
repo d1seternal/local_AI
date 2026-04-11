@@ -267,8 +267,7 @@ class DocumentProcessor:
                     "filename": file_path.name,
                     "error": str(e)
                 }
-            )
-            
+            )  
     
     def _process_txt(self, file_path: pathlib.Path) -> DocumentProcessingResult:
         try:
