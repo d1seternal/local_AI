@@ -27,7 +27,7 @@ from shared.prompts import (
     UnifiedRAGPrompt
 )
 from shared.session_manager import SessionManager
-
+from shared.benchmark import ModelBenchmark
 
 __all__ = [
     'MODEL_PATH',
@@ -53,5 +53,6 @@ __all__ = [
     'EnhancedNameSearchPrompt',
     'NumericValueSearchPrompt',
     'KeywordSearchPrompt',
-    'UnifiedRAGPrompt'
+    'UnifiedRAGPrompt',
+    'ModelBenchmark'
 ] 
