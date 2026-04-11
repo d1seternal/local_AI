@@ -1,10 +1,43 @@
 # Локальный ИИ-ассистент для аналитики документов и построения сводок
 ## Проект направлен на реализацию и построение локальной llm-модели, не требующей больших вычислительных ресурсов и сложных установочных процессов. Модель способна сохранять историю диалога, хранить в векторном виде необходимые тексты и docx-, pdf-документы для последующего анализа информации в них и вывода необходимых данных на основе запроса пользователя. Есть возможность интегрировать и тестировать желаемые варианты llm-, emdedding-моделей для возможного улучшения работы программы, в экспериментальных целях или в целях оптимизации процесса.  
 ## Setup:
-- git clone https://github.com/d1seternal/local_AI.git<br>cd local_AI
-- conda activate your-env
-- pip install llama-cpp-python<br>Пример загрузки llm-модели через HuggingFace:<br> pip install huggingface-hub<br>hf download TheBloke/Mistral-7B-Instruct-v0.2-GGUF/mistral-7b-instruct-v0.2.Q6_K.gguf --local-dir; скачивать в отдельную папку /models (в .gitignore)
-- install -r requirements.txt
+
+**install.sh:**
+```bash
+# Python
+sudo apt update
+sudo apt install -y python3.11 python3-pip python3-venv
+# CMake
+sudo apt install -y cmake
+
+# Git
+git clone https://github.com/d1seternal/local_AI.git
+cd local_AI
+
+# Создание виртуального окружения
+python3.11 -m venv venv
+source venv/bin/activate  # Linux/Mac
+
+# Установка пакетов
+pip install -r requirements.txt
+
+# Установка llama-cpp-python с оптимизацией
+CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" pip install llama-cpp-python --force-reinstall --no-cache-dir
+```
+
+**run.sh:**
+```bash
+source venv/bin/activate
+# Скачать модель, если нет
+MODEL_DIR="models"
+MODEL_FILE="mistral-7b-instruct-v0.2.Q6_K.gguf"
+if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then
+    echo "Скачиваю модель..."
+    mkdir -p $MODEL_DIR
+    hf download TheBloke/Mistral-7B-Instruct-v0.2-GGUF $MODEL_FILE --local-dir $MODEL_DIR
+fi
+python3 app.py
+```
 - Также используются механизмы для ускорения выичислительных процессов и генерации ответов. Ускорять процесс можно либо через GPU, либо через CPU (если нет возможности ускориться через GPU). Самой распространенной технологией для видеокарт NVIDIA является CUDA (Compute Unified Device Architecture) - технология компании NVIDIA, которая позволяет использовать графический процессор (GPU) вместо центрального процессора (CPU) для выполнения сложных вычислений. Команда для подключения ускорения при установке фреймворка llama-cpp-python:<br>
 ```python
 CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python #CUDA
@@ -21,15 +54,11 @@ set FORCE_CMAKE=1
 pip install llama-cpp-python --force-reinstall --no-cache-dir #Intel MKL;подключаемые библиотеки располагаются в соответствующих папках директории установленной anaconda
 ```
 ## Requirements.txt (текущие в проекте):
-conda==26.1.1<br>
-cmake==3.29.5-msvc4<br>
-llama-cpp-python==0.3.16<br>
 torch==2.10.0<br>
 chromadb==1.5.2<br>
 sentence-transformers==5.2.3<br>
 PyPDF2==3.0.1<br>
 python-docx==1.2.0<br>
-python==3.11.4<br>
 huggingface-hub==0.36.2<br>
 docling[complete]==2.77.0<br>
 pandas==2.3.3<br>
@@ -48,6 +77,8 @@ numpy==1.26.4
 graph TD
     subgraph "local_AI"
         A[requirements.txt]
+        B[install.sh]
+        C[run.sh]
         
         subgraph LLM[llm/]
             subgraph B1[block1]
@@ -62,18 +93,20 @@ graph TD
                 B3F1[agent.py]
             end
             
-            subgraph B4[shared]
-                B4F1[memory.py]
-                B4F2[document_parser.py]
-                B4F3[prompts.py]
-                B4F4[reranker.py]
-                B4F5[__init.py]
-                B4F6[config.py]
-                B4F7[session_manager.py]
+            subgraph B4[block4]
+                B4F1[app.py]
             end
-            subgraph B5[block4]
-                B5F1[app.py]
+
+            subgraph B5[shared]
+                B5F1[memory.py]
+                B5F2[document_parser.py]
+                B5F3[prompts.py]
+                B5F4[reranker.py]
+                B5F5[__init.py]
+                B5F6[config.py]
+                B5F7[session_manager.py]
             end
+
             subgraph FP[final_project]
                 
             end
