@@ -36,7 +36,8 @@ from shared.__init__ import (
     MODEL_GPU_LAYERS,
     MODEL_CONTEXT,
     MODEL_THREADS,
-    MODEL_TOP_P
+    MODEL_TOP_P, 
+    ModelBenchmark
 )
 
 
@@ -65,67 +66,65 @@ def get_shared_memory():
 def get_shared_processor():
     return _shared_processor
 
-class ModelBenchmark:
+# class ModelBenchmark:
     
-    def __init__(self):
-        self.metrics = {
-            'model_name': os.path.basename(MODEL_PATH),
-            'model_size_gb': 0,
-            'load_time': 0,
-            'total_queries': 0,
-            'total_tokens': 0,
-            'total_time': 0,
-            'queries': []
-        }
-        self.process = psutil.Process()
+#     def __init__(self):
+#         self.metrics = {
+#             'model_name': os.path.basename(MODEL_PATH),
+#             'model_size_gb': 0,
+#             'load_time': 0,
+#             'total_queries': 0,
+#             'total_tokens': 0,
+#             'total_time': 0,
+#             'queries': []
+#         }
+#         self.process = psutil.Process()
     
-    def get_memory_usage(self):
-        mem = self.process.memory_info()
-        return {
-            'rss': mem.rss / 1024 / 1024, 
-            'vms': mem.vms / 1024 / 1024 
-        }
+#     def get_memory_usage(self):
+#         mem = self.process.memory_info()
+#         return {
+#             'rss': mem.rss / 1024 / 1024, 
+#             'vms': mem.vms / 1024 / 1024 
+#         }
     
-    def get_model_info(self, llm):
-        info = {
-            'n_ctx': llm.context_params.n_ctx,
-            'n_threads': llm.context_params.n_threads,
-            'model_size': os.path.getsize(MODEL_PATH) / 1024 / 1024 / 1024
-        }
-        return info
+#     def get_model_info(self, llm):
+#         info = {
+#             'n_ctx': llm.context_params.n_ctx,
+#             'n_threads': llm.context_params.n_threads,
+#             'model_size': os.path.getsize(MODEL_PATH) / 1024 / 1024 / 1024
+#         }
+#         return info
     
-    def add_query_result(self, query, response, tokens, time_taken, tokens_per_second):
-        self.metrics['queries'].append({
-            'query': query,
-            'response_length': len(response),
-            'tokens_generated': tokens,
-            'time_seconds': round(time_taken, 2),
-            'tokens_per_second': round(tokens_per_second, 2)
-        })
-        self.metrics['total_queries'] += 1
-        self.metrics['total_tokens'] += tokens
-        self.metrics['total_time'] += time_taken
+#     def add_query_result(self, query, response, tokens, time_taken, tokens_per_second):
+#         self.metrics['queries'].append({
+#             'query': query,
+#             'response_length': len(response),
+#             'tokens_generated': tokens,
+#             'time_seconds': round(time_taken, 2),
+#             'tokens_per_second': round(tokens_per_second, 2)
+#         })
+#         self.metrics['total_queries'] += 1
+#         self.metrics['total_tokens'] += tokens
+#         self.metrics['total_time'] += time_taken
     
-    def calculate_model_ram_usage(self):
+#     def calculate_model_ram_usage(self):
         
-        before = self.metrics['memory']['before_load']['ram_mb']
-        after = self.metrics['memory']['after_load']['ram_mb']
-        model_ram = after - before
+#         before = self.metrics['memory']['before_load']['ram_mb']
+#         after = self.metrics['memory']['after_load']['ram_mb']
+#         model_ram = after - before
         
-        file_info = self.metrics.get('model_file_info', {})
-        file_size = file_info.get('size_gb', 0) * 1024
+#         file_info = self.metrics.get('model_file_info', {})
+#         file_size = file_info.get('size_gb', 0) * 1024
         
-        return {
-            'model_ram_mb': round(model_ram, 2),
-            'model_ram_gb': round(model_ram / 1024, 2),
-            'file_size_mb': round(file_size, 2),
-            'ram_vs_file_ratio': round(model_ram / file_size if file_size > 0 else 0, 2),
-            'before_load_mb': round(before, 2),
-            'after_load_mb': round(after, 2),
-            'peak_ram_mb': self.metrics['memory']['peak'].get('ram_mb', 0)
-        }
-    
-
+#         return {
+#             'model_ram_mb': round(model_ram, 2),
+#             'model_ram_gb': round(model_ram / 1024, 2),
+#             'file_size_mb': round(file_size, 2),
+#             'ram_vs_file_ratio': round(model_ram / file_size if file_size > 0 else 0, 2),
+#             'before_load_mb': round(before, 2),
+#             'after_load_mb': round(after, 2),
+#             'peak_ram_mb': self.metrics['memory']['peak'].get('ram_mb', 0)
+#         }
 
 def index_documents_interactive(memory):
     while True:
