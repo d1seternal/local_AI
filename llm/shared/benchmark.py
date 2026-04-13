@@ -18,8 +18,15 @@ class ModelBenchmark:
             'total_tokens': 0,
             'total_time': 0,
             'queries': [],
-            'memory': {}
+            'memory': {
+                'before_load': {},
+                'after_load': {}
+            },
+            'system_info': {
+                'cpu_cores': psutil.cpu_count(),
+                'ram_total_gb': psutil.virtual_memory().total / 1024 / 1024 / 1024 }
         }
+
         self.process = psutil.Process()
     
     def get_memory_usage(self) -> Dict[str, float]:
@@ -52,14 +59,14 @@ class ModelBenchmark:
     def set_load_metrics(self, load_time: float, mem_before: Dict, mem_after: Dict, 
                          model_info: Dict):
         self.metrics['load_time'] = load_time
-        self.metrics['memory_before'] = mem_before
-        self.metrics['memory_after'] = mem_after
+        self.metrics['memory']['before_load']  = mem_before
+        self.metrics['memory']['after_load']= mem_after
         self.metrics['model_info'] = model_info
         self.metrics['model_size_gb'] = model_info.get('model_size', 0)
     
     def calculate_model_ram_usage(self) -> Dict[str, Any]:
-        before = self.metrics.get('memory_before', {}).get('rss', 0)
-        after = self.metrics.get('memory_after', {}).get('rss', 0)
+        before = self.metrics.get('memory', {}).get('before_load', {}).get('rss', 0)
+        after = self.metrics.get('memory', {}).get('after_load', {}).get('rss', 0)
         model_ram = after - before
         
         file_size = self.metrics.get('model_size_gb', 0) * 1024
@@ -68,10 +75,12 @@ class ModelBenchmark:
             'model_ram_mb': round(model_ram, 2),
             'model_ram_gb': round(model_ram / 1024, 2),
             'file_size_mb': round(file_size, 2),
+            'file_size_gb': round(file_size / 1024, 2),
             'ram_vs_file_ratio': round(model_ram / file_size if file_size > 0 else 0, 2),
             'before_load_mb': round(before, 2),
+            'before_load_gb': round(before / 1024, 2),
             'after_load_mb': round(after, 2),
-            'peak_ram_mb': self.metrics.get('memory', {}).get('peak', {}).get('ram_mb', 0)
+            'after_load_gb': round(after / 1024, 2)
         }
     
     def print_summary(self):
@@ -91,10 +100,10 @@ class ModelBenchmark:
         
         ram_usage = self.calculate_model_ram_usage()
         print(f"\nИспользование памяти:")
-        print(f"   До загрузки: {ram_usage['before_load_mb']:.1f} MB")
-        print(f"   После загрузки: {ram_usage['after_load_mb']:.1f} MB")
+        print(f"   До загрузки: {ram_usage['before_load_mb']:.1f} MB ({ram_usage['before_load_gb']:.2f} GB)")
+        print(f"   После загрузки: {ram_usage['after_load_mb']:.1f} MB ({ram_usage['after_load_gb']:.2f} GB)")
         print(f"   Модель в RAM: {ram_usage['model_ram_mb']:.1f} MB ({ram_usage['model_ram_gb']:.2f} GB)")
-        
+        print(f"   Размер файла модели: {ram_usage['file_size_mb']:.1f} MB ({ram_usage['file_size_gb']:.2f} GB)")
         print("\n")
     
     def save_to_file(self, filename: Optional[str] = None, directory: str = "./benchmarks") -> str:
