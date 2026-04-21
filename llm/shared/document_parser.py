@@ -11,6 +11,17 @@ from dataclasses import dataclass
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import re
 
+
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="PyPDF2")
+
+try:
+    import PyPDF2
+    PDF_SUPPORT = True
+except ImportError:
+    PDF_SUPPORT = False
+    print("поддержка PDF отключена")
+
 try:
     from docx import Document as DocxDocument
     DOCX_SUPPORT = True
@@ -48,41 +59,46 @@ class DocumentProcessor:
     def __init__(
         self,
         use_docling: bool = True,
-        ocr_enabled: bool = False,
+        ocr_enabled: bool = True,
         table_mode: str = "fast",      
         chunk_size = CHUNK_SIZE,        
         chunk_overlap = CHUNK_OVERLAP
+        # max_num_pages: int = 0
     ):
         self.use_docling = use_docling
         self.ocr_enabled = ocr_enabled
         self.table_mode = table_mode
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        # self.max_num_pages = max_num_pages
         
         if self.use_docling:
             self._init_docling()
     
+    MAX_DOCLING_PAGES = 15
+
     def _init_docling(self):
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = self.ocr_enabled
-        pipeline_options.do_table_structure = True
-        pipeline_options.generate_picture_images = False
-        pipeline_options.generate_page_images = False
-        pipeline_options.images_scale = 1.0
+        self._base_pipeline_options = PdfPipelineOptions()
+        self._base_pipeline_options.do_ocr = self.ocr_enabled
+        self._base_pipeline_options.do_table_structure = True
+        self._base_pipeline_options.generate_picture_images = False
+        self._base_pipeline_options.generate_page_images = False
+        self._base_pipeline_options.images_scale = 1.0
+        # self._base_pipeline_options.max_num_pages = self.MAX_DOCLING_PAGES
         
         if self.table_mode == "accurate":
-            pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
+            self._base_pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
         else:
-            pipeline_options.table_structure_options.mode = TableFormerMode.FAST
+            self._base_pipeline_options.table_structure_options.mode = TableFormerMode.FAST
         
-        pipeline_options.do_code_enrichment = False
+        self._base_pipeline_options.do_code_enrichment = False
         
         self.docling_converter = DocumentConverter(
             format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                InputFormat.PDF: PdfFormatOption(pipeline_options=self._base_pipeline_options)
             }
         )
-    
+
     def process_document(self, file_path: pathlib.Path) -> DocumentProcessingResult:
         ext = file_path.suffix.lower()
     
@@ -93,29 +109,65 @@ class DocumentProcessor:
             return self._process_docx(file_path)
         else:
             return self._process_fallback(file_path)
+
+    def _get_pdf_page_count(self, file_path: pathlib.Path) -> int:
+        if not PDF_SUPPORT:
+            return 999
+        try:
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                return len(reader.pages)
+        except Exception:
+            return 999
     
     def _process_pdf(self, file_path: pathlib.Path) -> DocumentProcessingResult:
+        
+        page_count = self._get_pdf_page_count(file_path)
+        
+        print(f"\n PDF: {file_path.name}")
+        print(f"   Страниц: {page_count}")
+        
+        if page_count <= self.MAX_DOCLING_PAGES: 
+            if not self.use_docling:
+                print(f"  Docling не доступен, используем PyPDF2")
+                return self._process_pdf_with_pypdf2_enhanced(file_path)
+            
+            try:
+                print(f"  Запуск Docling...")
+                result = self._process_pdf_with_docling(file_path, ocr_enabled=True)
+                print(f"  Docling завершен успешно")
+                return result
+            except MemoryError as e:
+                print(f"  Ошибка памяти в Docling: {e}")
+                print(f"  Переключаемся на PyPDF2...")
+                return self._process_pdf_with_pypdf2_enhanced(file_path)
+            except Exception as e:
+                print(f"   Ошибка Docling: {e}")
+                print(f"   Переключаемся на PyPDF2...")
+                return self._process_pdf_with_pypdf2_enhanced(file_path)
+        else:
+            return self._process_pdf_with_pypdf2_enhanced(file_path)
+    
+    def _process_pdf_with_docling(self, file_path: pathlib.Path, ocr_enabled) -> DocumentProcessingResult:
         try:
             result = self.docling_converter.convert(str(file_path))
             document = result.document
             data = document.export_to_dict()
-            
-        
             all_text_parts = []
             tables_info = []
-         
+            
             texts = data.get('texts', [])
             for text_item in texts:
                 text = text_item.get('text', '').strip()
                 if text:
                     all_text_parts.append(text)
-          
+
             tables = data.get('tables', [])
             for table_idx, table_data in enumerate(tables):
                 try:
                     table = document.tables[table_idx]
                     table_md = self._table_to_md(table.model_dump())
-                 
+                    
                     context = self._find_table_context(table_data, data)
                     
                     table_text = []
@@ -130,31 +182,154 @@ class DocumentProcessor:
                         'text': table_md,
                         'context': context
                     })
-                    
                 except Exception as e:
-                    print(f"Ошибка таблицы {table_idx}: {e}")
-
+                    print(f"   Ошибка таблицы {table_idx}: {e}")
+            
             full_text = "\n\n".join(all_text_parts)
             chunks = self._create_chunks(full_text)
-            metadata = {
-                "filename": file_path.name,
-                "file_size": file_path.stat().st_size,
-                "tables_count": len(tables_info),
-                "parser": "docling",
-                "ocr_used": self.ocr_enabled,
-                "table_mode": self.table_mode
-            }
             
             return DocumentProcessingResult(
                 text=full_text,
                 chunks=chunks,
                 tables=tables_info,
-                metadata=metadata
+                metadata={
+                    "filename": file_path.name,
+                    "parser": "docling",
+                    "ocr_used": ocr_enabled,
+                    "tables_count": len(tables_info),
+                    "pages_processed": min(self._get_pdf_page_count(file_path), self.MAX_DOCLING_PAGES)
+                }
             )
             
         except Exception as e:
-            print(f"Ошибка PDF: {e}")
+            raise Exception(f"Docling processing failed: {e}")
+    
+    def _process_pdf_with_pypdf2_enhanced(self, file_path: pathlib.Path) -> DocumentProcessingResult:
+        if not PDF_SUPPORT:
             return self._process_fallback(file_path)
+        
+        try:
+            all_text = []
+            tables_info = []
+            
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                total_pages = len(reader.pages)
+                
+                print(f"  Обработка через PyPDF2")
+                
+                for page_num, page in enumerate(reader.pages):
+                    text = page.extract_text()
+                    if text:
+                        page_text, page_tables = self._enhance_text_with_tables(text)
+                        all_text.append(page_text)
+                        tables_info.extend(page_tables)
+                    
+                    if (page_num + 1) % 10 == 0:
+                        print(f"  Обработано страниц: {page_num + 1}/{total_pages}")
+            
+            full_text = "\n\n".join(all_text)
+            chunks = self._create_chunks(full_text)
+            
+            return DocumentProcessingResult(
+                text=full_text,
+                chunks=chunks,
+                tables=tables_info,
+                metadata={
+                    "filename": file_path.name,
+                    "file_size": file_path.stat().st_size,
+                    "pages": total_pages,
+                    "tables_count": len(tables_info),
+                    "parser": "pypdf2_enhanced"
+                }
+            )
+            
+        except Exception as e:
+            print(f"  PyPDF2 ошибка: {e}")
+            return self._process_fallback(file_path)
+    
+    def _enhance_text_with_tables(self, text: str) -> tuple:
+        lines = text.split('\n')
+        tables = []
+        current_table = []
+        in_table = False
+        table_id = 0
+        
+        for line in lines:
+            # Признаки таблицы: множественные пробелы (3+), разделители, выравнивание
+            is_table_line = False
+            
+            # Множественные пробелы (вероятный признак таблицы)
+            if re.search(r'\s{3,}', line):
+                is_table_line = True
+            
+            # Разделители таблиц
+            if '|' in line or re.search(r'[+-]{3,}', line):
+                is_table_line = True
+            
+            # Много чисел в строке (характерно для таблиц)
+            numbers = re.findall(r'\d+', line)
+            if len(numbers) >= 3:
+                is_table_line = True
+            
+            if is_table_line:
+                if not in_table:
+                    in_table = True
+                    current_table = []
+                    table_id += 1
+                
+                # Форматируем строку таблицы
+                if '|' in line:
+                    # Уже есть разделители
+                    formatted_line = line
+                else:
+                    # Разделяем по множественным пробелам
+                    cells = re.split(r'\s{2,}', line.strip())
+                    if len(cells) >= 2:
+                        formatted_line = "| " + " | ".join(cells) + " |"
+                    else:
+                        formatted_line = line
+                
+                current_table.append(formatted_line)
+            else:
+                if in_table and len(current_table) >= 2:
+                    # Добавляем разделитель заголовка
+                    first_row_cells = current_table[0].split('|')[1:-1]
+                    if first_row_cells:
+                        header_separator = "|" + "|".join(["---" for _ in first_row_cells]) + "|"
+                        current_table.insert(1, header_separator)
+                    
+                    tables.append({
+                        'id': table_id,
+                        'text': '\n'.join(current_table),
+                        'rows': len(current_table) - 2  # минус заголовок и разделитель
+                    })
+                
+                current_table = []
+                in_table = False
+        
+        # Обработка последней таблицы
+        if in_table and len(current_table) >= 2:
+            first_row_cells = current_table[0].split('|')[1:-1]
+            if first_row_cells:
+                header_separator = "|" + "|".join(["---" for _ in first_row_cells]) + "|"
+                current_table.insert(1, header_separator)
+            
+            tables.append({
+                'id': table_id,
+                'text': '\n'.join(current_table),
+                'rows': len(current_table) - 2
+            })
+        
+        # Вставляем маркеры таблиц в текст
+        formatted_text = text
+        for table in tables:
+            # Добавляем маркер таблицы
+            table_marker = f"\n[ТАБЛИЦА {table['id']}]\n{table['text']}\n"
+            formatted_text = formatted_text.replace(table['text'], table_marker)
+        
+        return formatted_text, tables
+    
     
     def _process_docx(self, file_path: pathlib.Path) -> DocumentProcessingResult:
         try:

@@ -18,6 +18,10 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling_core.types.doc import PictureItem, TableItem
 from docling.datamodel.pipeline_options import TableFormerMode
 
+
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="PyPDF2")
+
 try:
     import PyPDF2
     PDF_SUPPORT = True
@@ -160,10 +164,6 @@ class VectorMemory:
             doc_id = f"doc_{uuid.uuid4().hex[:8]}"
        
         result = self.doc_processor.process_document(found_path)
-
-        # if result.text is None or not result.text.strip():
-        #     print(f"Документ {found_path.name} не содержит текста")
-        #     return 0
         
         dest_path = self.documents_dir / f"{doc_id}_{found_path.name}"
         shutil.copy2(found_path, dest_path)
@@ -386,21 +386,6 @@ class VectorMemory:
             initial_results.sort(key=lambda x: x['relevance_score'], reverse=True)
             return initial_results[:final_k]
         
-    # def smart_search(self, question: str, k: int = 5) -> List[Dict]:
-    #     question_type = UnifiedRAGPrompt.detect_question_type(question)
-    #     keywords = self._extract_keywords(question)
-        
-    #     results = self.search_documents(question, k=k*2)
-    #     if question_type == 'name':
-    #         results = self._filter_for_names(results, keywords)
-    #     elif question_type == 'numeric':
-    #         results = self._filter_for_numbers(results, keywords)
-    #     elif question_type == 'legal':
-    #         results = [r for r in results if r['relevance_score'] > 0.7]
-        
-    #     return results[:k]
-    
-
     def list_documents(self) -> List[Dict[str, Any]]:
         results = self.docs_collection.get()
         
@@ -432,7 +417,6 @@ class VectorMemory:
     
     def get_stats(self) -> Dict[str, Any]:
         return {
-            "memory_messages": self.count_memory(),
             "document_chunks": self.count_documents(),
             "documents": len(self.list_documents()),
             "docs_collection": self.docs_collection_name,
