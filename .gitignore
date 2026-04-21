@@ -31,3 +31,12 @@ gradio_cached_examples/
 sessions/*.json
 *.local
 config.local.py
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+htmlcov/
+.coverage
+llm/.coverage
+.pytest_cache/
+.pytest_cache/*
