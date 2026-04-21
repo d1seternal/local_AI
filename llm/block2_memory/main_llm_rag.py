@@ -28,7 +28,6 @@ from shared.__init__ import (
     DocumentSearchPrompt,
     MODEL_PATH,
     MEMORY_PATH,
-    MEMORY_COLLECTION,
     DOCS_COLLECTION,
     EMBEDDING_MODEL,
     SEED,
@@ -137,7 +136,7 @@ def load_model(benchmark):
         start_time = time.time()
         
         llm = Llama(
-            model_path=MODEL_PATH,
+            model_path=str(MODEL_PATH),
             n_ctx=MODEL_CONTEXT,
             n_threads=MODEL_THREADS,
             n_gpu_layers=MODEL_GPU_LAYERS,
@@ -253,7 +252,7 @@ def extract_keywords(question: str) -> List[str]:
         'когда', 'почему', 'зачем', 'как', 'сколько', 'это', 'тот',
         'этот', 'весь', 'все', 'они', 'она', 'оно', 'мы', 'вы',
         'в', 'на', 'с', 'со', 'из', 'по', 'к', 'у', 'от', 'для',
-        'и', 'а', 'но', 'или', 'что', 'чтобы', 'быть', 'иметь'
+        'и', 'а', 'но', 'или', 'что', 'чтобы', 'быть', 'иметь', 'такое'
     }
     
     clean_question = re.sub(r'[^\w\s]', ' ', question.lower())
@@ -403,7 +402,6 @@ def chat_loop_with_return(llm, benchmark, memory, session_id, reranker=None):
         if user_input == '/memory':
             stats = memory.get_stats()
             print(f"\n Статистика памяти:")
-            print(f"   Диалогов в памяти: {stats['memory_messages']}")
             print(f"   Чанков документов: {stats['document_chunks']}")
             print(f"   Документов: {stats['documents']}")
             continue
@@ -553,7 +551,7 @@ def generate_with_document(
     
     response = llm(
         full_prompt, 
-        max_tokens=350,
+        max_tokens=700,
         temperature=MODEL_TEMPERATURE,
         top_p=MODEL_TOP_P, 
         echo=False
@@ -648,7 +646,6 @@ def chat_with_document_session(memory):
             answer, tokens, time_taken, speed = generate_with_document(
                 llm=llm,
                 query_text=user_input,
-                benchmark=benchmark,
                 memory=memory,
                 doc_id=doc_id
             )
@@ -663,23 +660,19 @@ def chat_with_document_session(memory):
 
 
 def main():
-    processor = DocumentProcessor(
-        use_docling=True,
-        ocr_enabled=True, 
+    processor = DocumentProcessor( 
         table_mode="accurate"  
     )
 
     print("\nИнициализация векторной памяти...")
     memory = VectorMemory(
         persist_directory=MEMORY_PATH,
-        memory_collection=MEMORY_COLLECTION,
         docs_collection=DOCS_COLLECTION,
         embedding_model=EMBEDDING_MODEL,
         doc_processor=processor
     )
     
     stats = memory.get_stats()
-    print(f"   Диалогов в памяти: {stats['memory_messages']}")
     print(f"   Документов: {stats['documents']}")
 
     while True:
