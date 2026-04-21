@@ -1,7 +1,6 @@
 from shared.config import (
     MODEL_PATH,
     MEMORY_PATH,
-    MEMORY_COLLECTION,
     SESSIONS_DIR,
     DOCS_COLLECTION,
     DATA_DIR,
@@ -32,7 +31,6 @@ from shared.benchmark import ModelBenchmark
 __all__ = [
     'MODEL_PATH',
     'MEMORY_PATH',
-    'MEMORY_COLLECTION',
     'SESSIONS_DIR',
     'DOCS_COLLECTION',
     'DATA_DIR',

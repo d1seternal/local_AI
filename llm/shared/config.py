@@ -7,7 +7,6 @@ DATA_DIR = PROJECT_ROOT / "agent_data"
 MEMORY_PATH = PROJECT_ROOT / "agent_vector_store"
 SESSIONS_DIR = PROJECT_ROOT / "sessions"
 MODEL_PATH = MODEL_ROOT / "models" / "deepseek-r1-qwen3-8b-q4_k_m.gguf"
-MEMORY_COLLECTION = "conversations"
 DOCS_COLLECTION = "documents"
 EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
 
