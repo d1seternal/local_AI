@@ -63,14 +63,12 @@ class DocumentProcessor:
         table_mode: str = "fast",      
         chunk_size = CHUNK_SIZE,        
         chunk_overlap = CHUNK_OVERLAP
-        # max_num_pages: int = 0
     ):
         self.use_docling = use_docling
         self.ocr_enabled = ocr_enabled
         self.table_mode = table_mode
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        # self.max_num_pages = max_num_pages
         
         if self.use_docling:
             self._init_docling()
@@ -84,7 +82,6 @@ class DocumentProcessor:
         self._base_pipeline_options.generate_picture_images = False
         self._base_pipeline_options.generate_page_images = False
         self._base_pipeline_options.images_scale = 1.0
-        # self._base_pipeline_options.max_num_pages = self.MAX_DOCLING_PAGES
         
         if self.table_mode == "accurate":
             self._base_pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
@@ -256,18 +253,14 @@ class DocumentProcessor:
         table_id = 0
         
         for line in lines:
-            # Признаки таблицы: множественные пробелы (3+), разделители, выравнивание
             is_table_line = False
-            
-            # Множественные пробелы (вероятный признак таблицы)
+ 
             if re.search(r'\s{3,}', line):
                 is_table_line = True
             
-            # Разделители таблиц
             if '|' in line or re.search(r'[+-]{3,}', line):
                 is_table_line = True
             
-            # Много чисел в строке (характерно для таблиц)
             numbers = re.findall(r'\d+', line)
             if len(numbers) >= 3:
                 is_table_line = True
@@ -278,12 +271,9 @@ class DocumentProcessor:
                     current_table = []
                     table_id += 1
                 
-                # Форматируем строку таблицы
                 if '|' in line:
-                    # Уже есть разделители
                     formatted_line = line
                 else:
-                    # Разделяем по множественным пробелам
                     cells = re.split(r'\s{2,}', line.strip())
                     if len(cells) >= 2:
                         formatted_line = "| " + " | ".join(cells) + " |"
@@ -293,7 +283,6 @@ class DocumentProcessor:
                 current_table.append(formatted_line)
             else:
                 if in_table and len(current_table) >= 2:
-                    # Добавляем разделитель заголовка
                     first_row_cells = current_table[0].split('|')[1:-1]
                     if first_row_cells:
                         header_separator = "|" + "|".join(["---" for _ in first_row_cells]) + "|"
@@ -302,13 +291,12 @@ class DocumentProcessor:
                     tables.append({
                         'id': table_id,
                         'text': '\n'.join(current_table),
-                        'rows': len(current_table) - 2  # минус заголовок и разделитель
+                        'rows': len(current_table) - 2  
                     })
                 
                 current_table = []
                 in_table = False
         
-        # Обработка последней таблицы
         if in_table and len(current_table) >= 2:
             first_row_cells = current_table[0].split('|')[1:-1]
             if first_row_cells:
@@ -320,11 +308,9 @@ class DocumentProcessor:
                 'text': '\n'.join(current_table),
                 'rows': len(current_table) - 2
             })
-        
-        # Вставляем маркеры таблиц в текст
+    
         formatted_text = text
         for table in tables:
-            # Добавляем маркер таблицы
             table_marker = f"\n[ТАБЛИЦА {table['id']}]\n{table['text']}\n"
             formatted_text = formatted_text.replace(table['text'], table_marker)
         
