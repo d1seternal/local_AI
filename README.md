@@ -71,7 +71,10 @@ langchain-text-splitters==1.1.1<br>
 gradio==6.11.0<br>
 gradio-client==2.4.0<br>
 pydantic==2.12.5<br>
-numpy==1.26.4
+numpy==1.26.4<br>
+pytest==9.0.3<br>
+pytest-cov==7.1.0<br>
+pytest-mock==3.15.1
 ## Структура проекта:
 ```mermaid
 graph TD
