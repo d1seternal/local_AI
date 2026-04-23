@@ -1,11 +1,11 @@
+#!/bin/bash
+set -e
+
 # Python
 sudo apt update
 sudo apt install -y python3.11 python3-pip python3-venv
 # CMake
 sudo apt install -y cmake
-# Git
-git clone https://github.com/d1seternal/local_AI.git
-cd local_AI
 
 # Создание виртуального окружения
 python3.11 -m venv venv
