@@ -1,18 +1,20 @@
 # Локальный ИИ-ассистент для аналитики документов и построения сводок
 ## Проект направлен на реализацию и построение локальной llm-модели, не требующей больших вычислительных ресурсов и сложных установочных процессов. Модель способна сохранять историю диалога, хранить в векторном виде необходимые тексты и docx-, pdf-документы для последующего анализа информации в них и вывода необходимых данных на основе запроса пользователя. Есть возможность интегрировать и тестировать желаемые варианты llm-, emdedding-моделей для возможного улучшения работы программы, в экспериментальных целях или в целях оптимизации процесса.  
 ## Setup:
+**Kлонирование репозитория:**<br>
+git clone https://github.com/d1seternal/local_AI.git<br>
+cd local_AI<br>
 
 **install.sh:**
 ```bash
+#!/bin/bash
+set -e
+
 # Python
 sudo apt update
 sudo apt install -y python3.11 python3-pip python3-venv
 # CMake
 sudo apt install -y cmake
-
-# Git
-git clone https://github.com/d1seternal/local_AI.git
-cd local_AI
 
 # Создание виртуального окружения
 python3.11 -m venv venv
@@ -27,16 +29,19 @@ CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" pip install llama-cpp-
 
 **run.sh:**
 ```bash
+#!/bin/bash
+set -e
+
 source venv/bin/activate
 # Скачать модель, если нет
 MODEL_DIR="models"
-MODEL_FILE="mistral-7b-instruct-v0.2.Q6_K.gguf"
+MODEL_FILE="deepseek-r1-qwen3-8b-q4_k_m.gguf"
 if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then
     echo "Скачиваю модель..."
     mkdir -p $MODEL_DIR
-    hf download TheBloke/Mistral-7B-Instruct-v0.2-GGUF $MODEL_FILE --local-dir $MODEL_DIR
+    hf download muranAI/DeepSeek-R1-0528-Qwen3-8B-GGUF $MODEL_FILE --local-dir $MODEL_DIR
 fi
-python3 app.py
+python3 llm/block4_web/app.py
 ```
 - Также используются механизмы для ускорения выичислительных процессов и генерации ответов. Ускорять процесс можно либо через GPU, либо через CPU (если нет возможности ускориться через GPU). Самой распространенной технологией для видеокарт NVIDIA является CUDA (Compute Unified Device Architecture) - технология компании NVIDIA, которая позволяет использовать графический процессор (GPU) вместо центрального процессора (CPU) для выполнения сложных вычислений. Команда для подключения ускорения при установке фреймворка llama-cpp-python:<br>
 ```python
@@ -54,6 +59,7 @@ set FORCE_CMAKE=1
 pip install llama-cpp-python --force-reinstall --no-cache-dir #Intel MKL;подключаемые библиотеки располагаются в соответствующих папках директории установленной anaconda
 ```
 ## Requirements.txt (текущие в проекте):
+*llama-cpp-python устанавливается отдельно в модуле install.sh<br>
 torch==2.10.0<br>
 chromadb==1.5.2<br>
 sentence-transformers==5.2.3<br>
