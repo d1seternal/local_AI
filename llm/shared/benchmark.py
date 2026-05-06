@@ -32,8 +32,8 @@ class ModelBenchmark:
     def get_memory_usage(self) -> Dict[str, float]:
         mem = self.process.memory_info()
         return {
-            'rss': mem.rss / 1024 / 1024,  
-            'vms': mem.vms / 1024 / 1024  
+            'rss': mem.rss / 1024 / 1024 / 1024,  
+            'vms': mem.vms / 1024 / 1024 / 1024 
         }
     
     def get_model_info(self, llm) -> Dict[str, Any]:
@@ -69,18 +69,18 @@ class ModelBenchmark:
         after = self.metrics.get('memory', {}).get('after_load', {}).get('rss', 0)
         model_ram = after - before
         
-        file_size = self.metrics.get('model_size_gb', 0) * 1024
+        file_size = self.metrics.get('model_size_gb', 0) 
         
         return {
-            'model_ram_mb': round(model_ram, 2),
-            'model_ram_gb': round(model_ram / 1024, 2),
-            'file_size_mb': round(file_size, 2),
-            'file_size_gb': round(file_size / 1024, 2),
+            'model_ram_mb': round(model_ram * 1024, 2),
+            'model_ram_gb': round(model_ram, 2),
+            'file_size_mb': round(file_size * 1024, 2),
+            'file_size_gb': round(file_size, 2),
             'ram_vs_file_ratio': round(model_ram / file_size if file_size > 0 else 0, 2),
-            'before_load_mb': round(before, 2),
-            'before_load_gb': round(before / 1024, 2),
-            'after_load_mb': round(after, 2),
-            'after_load_gb': round(after / 1024, 2)
+            'before_load_mb': round(before * 1024, 2),
+            'before_load_gb': round(before, 2),
+            'after_load_mb': round(after * 1024, 2),
+            'after_load_gb': round(after, 2)
         }
     
     def print_summary(self):
