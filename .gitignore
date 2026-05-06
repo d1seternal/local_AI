@@ -40,3 +40,12 @@ htmlcov/
 llm/.coverage
 .pytest_cache/
 .pytest_cache/*
+quantization_benchmarks/
+quantization_results/
+results/
+logs/
+
+*.log
+*.json
+*.txt
+!requirements.txt  
