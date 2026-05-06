@@ -45,7 +45,3 @@ quantization_results/
 results/
 logs/
 
-*.log
-*.json
-*.txt
-!requirements.txt  
