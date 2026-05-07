@@ -351,8 +351,14 @@ def create_agent():
         execute_python       
     ]
 
-    for tool in tools:
-        tool.return_direct = False
+    vector_add.return_direct = True      
+    vector_list.return_direct = True     
+    search_documents.return_direct = False 
+    write_file.return_direct = True       
+    execute_python.return_direct = False  
+
+    # for tool in tools:
+    #     tool.return_direct = False
 
     prompt = ChatPromptTemplate.from_template(
         """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
