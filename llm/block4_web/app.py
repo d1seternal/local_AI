@@ -171,7 +171,7 @@ def on_switch_session(session_id):
 
 def on_delete_session(session_id): 
     if not session_id:
-        return "Сессия не выбрана", gr.update(), gr.update(), []
+        return "Сессия не выбрана", gr.update()
     
     sessions = get_all_sessions()
     existing_ids = [s['session_id'] for s in sessions]
@@ -195,7 +195,7 @@ def on_delete_session(session_id):
     current_id = get_current_session_id()
     info = get_session_info()
     
-    return result, gr.update(choices=session_choices, value=current_id), info
+    return result, gr.update(choices=session_choices, value=current_id)
 
 
 def get_session_info():
