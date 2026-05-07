@@ -59,7 +59,7 @@ def upload_file(file) -> tuple:
                     sessions_list = session_manager.get_all_sessions()
                     sessions_choices = [(s['session_id'], f"{s['title']} ({s['message_count']} сообщ)") 
                                         for s in sessions_list]
-                    return status, list_files(), gr.update(choices=sessions_choices), current_id
+                    return status, list_files()
                 
                 except:
                     status = f"Файл сохранен: {filename}"
@@ -140,7 +140,7 @@ def on_new_session():
 
 def on_switch_session(session_id):
     if not session_id:
-        return "Сессия не выбрана", gr.update(), gr.update(), []
+        return "Сессия не выбрана", gr.update()
     
     print(f"\nПереключение на сессию: {session_id}")
 
@@ -157,7 +157,7 @@ def on_switch_session(session_id):
                 break
     
     if real_id is None:
-        return f"Сессия '{session_id}' не найдена", gr.update(), gr.update(), []
+        return f"Сессия '{session_id}' не найдена", gr.update()
     
     result = switch_session(real_id)
     
@@ -185,7 +185,7 @@ def on_delete_session(session_id):
                 print(f"Найден ID: {session_id}")
                 break
         else:
-            return f"Сессия '{session_id}' не найдена", gr.update(), gr.update(), []
+            return f"Сессия '{session_id}' не найдена", gr.update()
     
     result = delete_session(session_id)
     print(f"Результат удаления: {result}")
