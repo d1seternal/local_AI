@@ -362,7 +362,7 @@ def create_interface():
     return demo
 
 
-def run_server(share=False, server_port=8080):
+def run_server(share=False, server_name="0.0.0.0", server_port=8080):
     demo = create_interface()
     print(f"Доступ:")
     print(f"   • http://localhost:{server_port}")
@@ -370,6 +370,7 @@ def run_server(share=False, server_port=8080):
         print(f"   • Публично: будет сгенерирована ссылка")
         
     demo.launch(
+        server_name=server_name,
         server_port=server_port,
         share=share,
         inbrowser=False
