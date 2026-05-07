@@ -9,22 +9,39 @@ cd local_AI<br>
 ```bash
 #!/bin/bash
 set -e
+# System packages
+sudo apt install -y \
+    git git-lfs \
+    python3 python3-pip python3-venv \
+    build-essential gcc g++ make \
+    cmake pkg-config \
+    libopenblas-dev \
+    curl wget unzip \
+    htop tmux \
+    sqlite3
 
-# Python
-sudo apt update
-sudo apt install -y python3.11 python3-pip python3-venv
-# CMake
-sudo apt install -y cmake
+git lfs install
 
-# Создание виртуального окружения
-python3.11 -m venv venv
-source venv/bin/activate  # Linux/Mac
+if [ ! -f /swapfile ]; then
+    sudo fallocate -l 8G /swapfile
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+fi
 
-# Установка пакетов
+# Python venv
+python3 -m venv venv
+source venv/bin/activate
+
+pip install --upgrade pip setuptools wheel
+
+# Requirements
 pip install -r requirements.txt
 
-# Установка llama-cpp-python с оптимизацией
-CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" pip install llama-cpp-python --force-reinstall --no-cache-dir
+# llama-cpp-python
+CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" \
+pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
 
 **run.sh:**
@@ -41,6 +58,22 @@ if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then
     mkdir -p $MODEL_DIR
     hf download muranAI/DeepSeek-R1-0528-Qwen3-8B-GGUF $MODEL_FILE --local-dir $MODEL_DIR
 fi
+
+EMBEDDING_DIR="models"
+EMBEDDING_FILE="multilingual-e5-base"
+if [ ! -d "$EMBEDDING_DIR/$EMBEDDING_FILE" ]; then
+    echo "Скачиваю модель эмбеддингов..."
+    python -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('intfloat/multilingual-e5-base')
+model.save('$EMBEDDING_DIR')
+print('Модель эмбеддингов сохранена локально')
+"
+else
+    echo "Модель эмбеддингов уже есть"
+fi
+
+
 python3 llm/block4_web/app.py
 ```
 - Также используются механизмы для ускорения выичислительных процессов и генерации ответов. Ускорять процесс можно либо через GPU, либо через CPU (если нет возможности ускориться через GPU). Самой распространенной технологией для видеокарт NVIDIA является CUDA (Compute Unified Device Architecture) - технология компании NVIDIA, которая позволяет использовать графический процессор (GPU) вместо центрального процессора (CPU) для выполнения сложных вычислений. Команда для подключения ускорения при установке фреймворка llama-cpp-python:<br>
