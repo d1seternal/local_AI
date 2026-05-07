@@ -155,7 +155,7 @@ class AgentLLM(LLM):
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
                 temperature=MODEL_TEMPERATURE,
-                stop=stop or ["User:", "FINAL ANSWER:", "Assistant:"]
+                stop=stop or ["User:", "Final Answer:", "Assistant:"]
             )
            
             output = response['choices'][0]['message']['content'].strip()
@@ -377,10 +377,10 @@ def create_agent():
 Не добавляй лишние слова перед Action
 На запрос пользователя обязательно нужно вернуть четкий ответ. Не добавляй других слов и комментариев. Если идет последний цикл генерации, а конкретный ответ не найден, то выводи информацию "данные не найдены"
 Если ты нашел ответ и готов ответить пользователю:
-- FINAL ANSWER: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), то завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
-FINAL ANSWER должен быть кратким
-Не выводи JSON в FINAL ANSWER
-Не рассуждай в FINAL ANSWER
+- Final Answer: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), то завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
+Final Answer должен быть кратким
+Не выводи JSON в Final Answer
+Не рассуждай в Final Answer
 
 Доступные инструменты:
 {tools}
@@ -392,22 +392,22 @@ Action: (название инструмента из списка)
 Action Input: (входные данные для инструмента в формате JSON)
 Observation: (результат выполнения инструмента)
 (ты можешь повторять Thought/Action/Action Input/Observation несколько раз для получения более четкого ответа)
-FINAL ANSWER: (ответ пользователю)
+Final Answer: (ответ пользователю)
 
 Few-shot пример:
     Question: Что такое неустойка?
     Thought: Нужно найти определение в документе doc.docx
     Action: search_documents
-    Action Input: ({{query}} : "определение неустойки в документе") (в формате JSON)
+    Action Input: {{"query": "определение неустойки в документе"}}
     Observation: Неустойка - денежная сумма, которую должник обязан уплатить...
     Thought: Нашел ответ в документах
-    FINAL ANSWER: Неустойка - денежная сумма, которую должник обязан уплатить кредитору в случае неисполнения обязательств (ст. 330 ГК РФ).
+    Final Answer: Неустойка - денежная сумма, которую должник обязан уплатить кредитору в случае неисполнения обязательств (ст. 330 ГК РФ).
 
 Начало работы:
     Question: {input}
     Thought: {agent_scratchpad}
 
-
+    
 """
 
     )
@@ -422,7 +422,7 @@ Few-shot пример:
         tools=tools,
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=2,
+        max_iterations=5,
         early_stopping_method="force"
     )
     
@@ -557,7 +557,7 @@ def main():
             
             if query.lower() == '/help':
                 print("  • vector_list - список файлов")
-                print("  • vector_add - добавление файла в память")
+                print("  • vector_add - добавить файл в память")
                 print("  • search_documents - искать информацию через RAG")
                 print("  • write_file - записать данные в файл")
                 print("  • execute_python - выполнить Python-код")

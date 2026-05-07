@@ -38,7 +38,7 @@ def load_model(benchmark):
         seed=SEED,                          
         temperature=MODEL_TEMPERATURE,                   
         top_p=MODEL_TOP_P,
-        chat_format="mistral-instruct"    #можно использовать небходимый формат для конкретной модели (например, chatml для Phi-3-mini-4k-Q4)                
+        chat_format="mistral-instruct",   #можно использовать небходимый формат для конкретной модели (например, chatml для Phi-3-mini-4k-Q4)                
     )
     
     load_time = time.time() - start_time
