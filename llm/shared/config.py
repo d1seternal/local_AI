@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 PROJECT_ROOT = Path(__file__).parent.parent
 MODEL_ROOT = Path(__file__).parent.parent.parent
@@ -8,7 +9,12 @@ MEMORY_PATH = PROJECT_ROOT / "agent_vector_store"
 SESSIONS_DIR = PROJECT_ROOT / "sessions"
 MODEL_PATH = MODEL_ROOT / "models" / "deepseek-r1-qwen3-8b-q4_k_m.gguf"
 DOCS_COLLECTION = "documents"
-EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
+EMBEDDING_MODEL = MODEL_ROOT / "models" / "multilingual-e5-base"
+
+if EMBEDDING_MODEL.exists():
+    EMBEDDING_MODEL = str(EMBEDDING_MODEL)
+else:
+    EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
 
 CHUNK_SIZE = 300
 CHUNK_OVERLAP = 50
