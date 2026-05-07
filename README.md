@@ -9,22 +9,39 @@ cd local_AI<br>
 ```bash
 #!/bin/bash
 set -e
+# System packages
+sudo apt install -y \
+    git git-lfs \
+    python3 python3-pip python3-venv \
+    build-essential gcc g++ make \
+    cmake pkg-config \
+    libopenblas-dev \
+    curl wget unzip \
+    htop tmux \
+    sqlite3
 
-# Python
-sudo apt update
-sudo apt install -y python3.11 python3-pip python3-venv
-# CMake
-sudo apt install -y cmake
+git lfs install
 
-# Создание виртуального окружения
-python3.11 -m venv venv
-source venv/bin/activate  # Linux/Mac
+if [ ! -f /swapfile ]; then
+    sudo fallocate -l 8G /swapfile
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+fi
 
-# Установка пакетов
+# Python venv
+python3 -m venv venv
+source venv/bin/activate
+
+pip install --upgrade pip setuptools wheel
+
+# Requirements
 pip install -r requirements.txt
 
-# Установка llama-cpp-python с оптимизацией
-CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" pip install llama-cpp-python --force-reinstall --no-cache-dir
+# llama-cpp-python
+CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" \
+pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
 
 **run.sh:**
@@ -41,6 +58,22 @@ if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then
     mkdir -p $MODEL_DIR
     hf download muranAI/DeepSeek-R1-0528-Qwen3-8B-GGUF $MODEL_FILE --local-dir $MODEL_DIR
 fi
+
+EMBEDDING_DIR="models"
+EMBEDDING_FILE="multilingual-e5-base"
+if [ ! -d "$EMBEDDING_DIR/$EMBEDDING_FILE" ]; then
+    echo "Скачиваю модель эмбеддингов..."
+    python -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('intfloat/multilingual-e5-base')
+model.save('$EMBEDDING_DIR')
+print('Модель эмбеддингов сохранена локально')
+"
+else
+    echo "Модель эмбеддингов уже есть"
+fi
+
+
 python3 llm/block4_web/app.py
 ```
 - Также используются механизмы для ускорения выичислительных процессов и генерации ответов. Ускорять процесс можно либо через GPU, либо через CPU (если нет возможности ускориться через GPU). Самой распространенной технологией для видеокарт NVIDIA является CUDA (Compute Unified Device Architecture) - технология компании NVIDIA, которая позволяет использовать графический процессор (GPU) вместо центрального процессора (CPU) для выполнения сложных вычислений. Команда для подключения ускорения при установке фреймворка llama-cpp-python:<br>
@@ -88,6 +121,7 @@ graph TD
         A[requirements.txt]
         B[install.sh]
         C[run.sh]
+        D[pytest.ini]
         
         subgraph LLM[llm/]
             subgraph B1[block1]
@@ -111,17 +145,34 @@ graph TD
                 B5F2[document_parser.py]
                 B5F3[prompts.py]
                 B5F4[reranker.py]
-                B5F5[__init.py]
+                B5F5[__init__.py]
                 B5F6[config.py]
                 B5F7[session_manager.py]
+                B5F8[benchmark.py]
             end
 
-            subgraph FP[final_project]
+            subgraph TESTS[tests]
                 
+                subgraph Q[quantization]
+                    Q1[config.yaml]
+                    Q2[quantization_benchmark.py]
+                    Q3[run_benchmarks.py]
+                end
+
+                subgraph T[test_shared]
+                    T1[test_documents_parser.py]
+                    T2[test_main_llm_rag.py]
+                    T3[test_memory.py]
+                    T4[test_prompts.py]
+                end
+
+                TC[conftest.py]
             end
+
         end
     end
 ```
+
 *  **block1_setup** - первый блок для настройки и бенчмаркинга llm-моделей. Блок содержит один файл block1_llm_setup.py для тестирования определенной языковой модели. С помощью данного python-модуля были протестированы различные модели, например: mistral-7b-instruct-v0.2.Q4_K_M, mistral-7b-instruct-v0.2.Q6_K, Phi-3-mini-4k-instruct-q4, yarn-mistral-7b-64k.Q4_K_M (для увеличения контекстного окна) - все модели квантизованы (q4- и q6-квантизации, поскольку в проекте исследуются возможности именно квантизованных GGUF-моделей). Для смены тестируемой модели достаточно указать путь к загруженной модели и в функции загрузки модели load_model для параметра chat_format указать необходимый формат чата с конкретными для модели разметочными словами (необходимые шаблоны можно найти при загрузке модели на HuggingFace). Необходимо отметить важный параметр при загрузке llm-модели n_gpu_layers, который определяет, какое количество слоев нейросети будет перенесено из оперативной памяти (RAM) в видеопамять (VRAM) вашей видеокарты для ускорения. Например, если стоит n_gpu_layers=0 — это значит, что видеокарта вообще не используется, и вся работа ложится на процессор (CPU); n_gpu_layers = -1 - максимальная нагрузка на GPU, ускоряющая генерации ответа:<br>
 ```python
 llm = Llama(
