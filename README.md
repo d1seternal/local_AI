@@ -121,6 +121,7 @@ graph TD
         A[requirements.txt]
         B[install.sh]
         C[run.sh]
+        D[pytest.ini]
         
         subgraph LLM[llm/]
             subgraph B1[block1]
@@ -144,17 +145,34 @@ graph TD
                 B5F2[document_parser.py]
                 B5F3[prompts.py]
                 B5F4[reranker.py]
-                B5F5[__init.py]
+                B5F5[__init__.py]
                 B5F6[config.py]
                 B5F7[session_manager.py]
+                B5F8[benchmark.py]
             end
 
-            subgraph FP[final_project]
+            subgraph TESTS[tests]
                 
+                subgraph Q[quantization]
+                    Q1[config.yaml]
+                    Q2[quantization_benchmark.py]
+                    Q3[run_benchmarks.py]
+                end
+
+                subgraph T[test_shared]
+                    T1[test_documents_parser.py]
+                    T2[test_main_llm_rag.py]
+                    T3[test_memory.py]
+                    T4[test_prompts.py]
+                end
+
+                TC[conftest.py]
             end
+
         end
     end
 ```
+
 *  **block1_setup** - первый блок для настройки и бенчмаркинга llm-моделей. Блок содержит один файл block1_llm_setup.py для тестирования определенной языковой модели. С помощью данного python-модуля были протестированы различные модели, например: mistral-7b-instruct-v0.2.Q4_K_M, mistral-7b-instruct-v0.2.Q6_K, Phi-3-mini-4k-instruct-q4, yarn-mistral-7b-64k.Q4_K_M (для увеличения контекстного окна) - все модели квантизованы (q4- и q6-квантизации, поскольку в проекте исследуются возможности именно квантизованных GGUF-моделей). Для смены тестируемой модели достаточно указать путь к загруженной модели и в функции загрузки модели load_model для параметра chat_format указать необходимый формат чата с конкретными для модели разметочными словами (необходимые шаблоны можно найти при загрузке модели на HuggingFace). Необходимо отметить важный параметр при загрузке llm-модели n_gpu_layers, который определяет, какое количество слоев нейросети будет перенесено из оперативной памяти (RAM) в видеопамять (VRAM) вашей видеокарты для ускорения. Например, если стоит n_gpu_layers=0 — это значит, что видеокарта вообще не используется, и вся работа ложится на процессор (CPU); n_gpu_layers = -1 - максимальная нагрузка на GPU, ускоряющая генерации ответа:<br>
 ```python
 llm = Llama(
