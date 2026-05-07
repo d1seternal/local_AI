@@ -265,38 +265,30 @@ def write_file(filepath: str, content: str, append: bool = False) -> str:
 
 @tool
 def execute_python(code: str) -> str:
-    """
-    Выполнить Python код.
-    
-    Аргументы:
-        code: str - Python код для выполнения
-    
-    Возвращает:
-        str - результат выполнения
-    """
+    """Выполнить Python код"""
     try:
-        clean_code = str(code).strip('"\'')
+        clean_code = code.strip('"\'')
         
         temp_file = DATA_DIR / f"_temp_{uuid.uuid4().hex[:8]}.py"
         
         full_code = f"""# -*- coding: utf-8 -*-
-            import sys
-            import json
-            import os
-            import math
-            import random
-            import traceback
-            from datetime import datetime
-            from pathlib import Path
+import sys
+import json
+import os
+import math
+import random
+import traceback
+from datetime import datetime
+from pathlib import Path
 
-            sys.path.insert(0, r'{DATA_DIR.absolute()}')
+sys.path.insert(0, r'{DATA_DIR.absolute()}')
 
-            try:
-                {chr(10).join(['    ' + line for line in clean_code.split(chr(10))])}
-            except Exception as e:
-                print(f"Ошибка: {{e}}", file=sys.stderr)
-                traceback.print_exc(file=sys.stderr)
-        """
+def main():
+{chr(10).join(['    ' + line for line in clean_code.split(chr(10))])}
+
+if __name__ == "__main__":
+    main()
+"""
         
         with open(temp_file, 'w', encoding='utf-8') as f:
             f.write(full_code)
@@ -360,7 +352,7 @@ def create_agent():
     ]
 
     for tool in tools:
-        tool.return_direct = True
+        tool.return_direct = False
 
     prompt = ChatPromptTemplate.from_template(
         """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
