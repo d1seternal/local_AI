@@ -11,9 +11,8 @@ if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then
     hf download muranAI/DeepSeek-R1-0528-Qwen3-8B-GGUF $MODEL_FILE --local-dir $MODEL_DIR
 fi
 
-EMBEDDING_DIR="models"
-EMBEDDING_FILE="multilingual-e5-base"
-if [ ! -f "$EMBEDDING_DIR/$EMBEDDING_FILE" ]; then
+EMBEDDING_DIR="models/multilingual-e5-base"
+if [ ! -d "$EMBEDDING_DIR" ]; then
     echo "Скачиваю модель эмбеддингов..."
     python -c "
 from sentence_transformers import SentenceTransformer
