@@ -13,7 +13,7 @@ fi
 
 EMBEDDING_DIR="models"
 EMBEDDING_FILE="multilingual-e5-base"
-if [ ! -d "$EMBEDDING_DIR/$EMBEDDING_FILE" ]; then
+if [ ! -f "$EMBEDDING_DIR/$EMBEDDING_FILE" ]; then
     echo "Скачиваю модель эмбеддингов..."
     python -c "
 from sentence_transformers import SentenceTransformer
