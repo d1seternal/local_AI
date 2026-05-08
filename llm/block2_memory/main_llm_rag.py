@@ -39,7 +39,6 @@ from shared.__init__ import (
     ModelBenchmark
 )
 
-
 _shared_llm = None
 _shared_benchmark = None
 _shared_memory = None
@@ -209,7 +208,7 @@ def generate_with_prompts(
     
     response = llm(
         full_prompt, 
-        max_tokens=375,
+        max_tokens=256,
         temperature=MODEL_TEMPERATURE,
         top_p=MODEL_TOP_P, 
         echo=False

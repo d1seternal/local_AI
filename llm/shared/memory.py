@@ -11,6 +11,7 @@ import chromadb
 import torch
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -76,11 +77,18 @@ class VectorMemory:
         print(f"Загрузка модели эмбеддингов: {self.embedding_model_name}")
         start_time = time.time()
         device = "cpu"
-        
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            self.embedding_model_name,
+            fix_mistral_regex=True
+        )
+
         self.embedding_model = SentenceTransformer(
             self.embedding_model_name,
             device=device
         )
+        
+        self.embedding_model.tokenizer = tokenizer
         
         print(f"Модель загружена за {time.time() - start_time:.2f} сек")
 
