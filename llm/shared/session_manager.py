@@ -14,7 +14,7 @@ class SessionManager:
         
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
-        self._sessions: Dict[str, List[Dict]] = {}
+        self._sessions: Dict[str, Dict] = {}  
         self._load_all()
         
         print(f"Менеджер сессий инициализирован")
@@ -25,7 +25,11 @@ class SessionManager:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self._sessions[data['session_id']] = data['messages']
+                    session_id = data['session_id']
+                    self._sessions[session_id] = {
+                        "messages": data.get('messages', []),
+                        "uploaded_files": data.get('uploaded_files', []) 
+                    }
             except Exception as e:
                 print(f"Ошибка загрузки {file_path}: {e}")
     
@@ -37,13 +41,17 @@ class SessionManager:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump({
                 "session_id": session_id,
-                "messages": self._sessions[session_id],
+                "messages": self._sessions[session_id].get("messages", []),
+                "uploaded_files": self._sessions[session_id].get("uploaded_files", []), 
                 "updated_at": time.time()
             }, f, ensure_ascii=False, indent=2)
     
     def create_session(self) -> str:
         session_id = str(uuid.uuid4())[:8]
-        self._sessions[session_id] = []
+        self._sessions[session_id] = {
+            "messages": [],
+            "uploaded_files": [] 
+        }
         self._save(session_id)
         print(f"Создана сессия: {session_id}")
         return session_id
@@ -58,12 +66,26 @@ class SessionManager:
             "timestamp": time.time()
         }
         
-        self._sessions[session_id].append(message)
+        self._sessions[session_id]["messages"].append(message)
         self._save(session_id)
         return True
     
+    def add_uploaded_file(self, session_id: str, filename: str) -> bool:
+        if session_id not in self._sessions:
+            return False
+        
+        if filename not in self._sessions[session_id]["uploaded_files"]:
+            self._sessions[session_id]["uploaded_files"].append(filename)
+            self._save(session_id)
+        return True
+
+    def get_uploaded_files(self, session_id: str) -> List[str]:
+        if session_id not in self._sessions:
+            return []
+        return self._sessions[session_id].get("uploaded_files", [])
+
     def get_history(self, session_id: str, limit: int = None) -> List[Dict]:
-        messages = self._sessions.get(session_id, [])
+        messages = self._sessions.get(session_id, {}).get("messages", [])
         if limit:
             messages = messages[-limit:]
         return messages
@@ -82,10 +104,12 @@ class SessionManager:
     
     def get_all_sessions(self) -> List[Dict]:
         sessions = []
-        for session_id, messages in self._sessions.items():
+        for session_id, data in self._sessions.items():
+            messages = data.get("messages", [])
             sessions.append({
                 "session_id": session_id,
                 "message_count": len(messages),
+                "files_count": len(data.get("uploaded_files", [])), 
                 "title": messages[0]['content'][:40] + "..." if messages else "Новый диалог",
                 "created_at": messages[0]['timestamp'] if messages else time.time(),
                 "updated_at": messages[-1]['timestamp'] if messages else time.time()
@@ -112,14 +136,16 @@ class SessionManager:
         
         self._sessions[session_id] = []
         self._save(session_id)
-        print(f"🧹 Очищена сессия: {session_id}")
+        print(f"Очищена сессия: {session_id}")
         return True
     
     def get_stats(self) -> Dict:
-        total_messages = sum(len(msgs) for msgs in self._sessions.values())
+        total_messages = sum(len(data.get("messages", [])) for data in self._sessions.values())
+        total_files = sum(len(data.get("uploaded_files", [])) for data in self._sessions.values())
         return {
             "total_sessions": len(self._sessions),
             "total_messages": total_messages,
+            "total_files": total_files,
             "storage_path": str(self.storage_path)
         }
 
