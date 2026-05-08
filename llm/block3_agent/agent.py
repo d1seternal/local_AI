@@ -349,13 +349,13 @@ def create_agent():
         search_documents,    
         write_file,          
         execute_python       
-    ]
+    ] 
 
     vector_add.return_direct = True      
-    vector_list.return_direct = True     
-    search_documents.return_direct = False 
-    write_file.return_direct = True       
-    execute_python.return_direct = False  
+    vector_list.return_direct = False        
+    search_documents.return_direct = False  
+    write_file.return_direct = True        
+    execute_python.return_direct = False
 
     # for tool in tools:
     #     tool.return_direct = False
@@ -363,36 +363,37 @@ def create_agent():
     prompt = ChatPromptTemplate.from_template(
         """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
 
-Никогда не пиши комментарии, заметки или пояснения, выходящие за рамки этого формата.
-Никогда не пиши ничего вроде "Подожду результат..." и другие комментарии после Action Input
-После Action Input идет исключительно Observation с полученным результатом
-Если какой-нибудь инструмент был выполнен успешно, вернув результат, то не делай его снова. Просто бери готовый результат
-Если пользователь интересуется информацией не по документам, или в запросе отсутствует название файла, то отвечай в свободном виде, исходя из своих имеющихся данных, не ищи информацию в документах.
-Если информация для ответа не была найдена, то выводи одно сообщение "информация не найдена". Не нужно выводить шаблоны для ответа из промптов.
-Не используй теги <think> или </think>
-Не добавляй рассуждения в тегах
-Не используй **жирный текст** или маркдаун
-Не добавляй лишние слова перед Action
-На запрос пользователя обязательно нужно вернуть четкий ответ. Не добавляй других слов и комментариев. Если идет последний цикл генерации, а конкретный ответ не найден, то выводи информацию "данные не найдены"
-Если ты нашел ответ и готов ответить пользователю:
-- Final Answer: [твой ответ] (например, "файл добавлен в память" или "Результаты поиска: <фрагменты>"), то завершай свою генерацию и ожидай новый запрос пользователя. Не нужно размышлять дальше, доходя до лимита итераций.
-Final Answer должен быть кратким
-Не выводи JSON в Final Answer
-Не рассуждай в Final Answer
+ВАЖНЫЕ ПРАВИЛА:
+- Следуй формату Thought → Action → Action Input → Observation
+- Не пиши комментарии после Action Input
+- Не повторяй успешные вызовы инструментов
+- Если информация не найдена → выведи "информация не найдена"
+- Final Answer должен быть кратким, без JSON и маркдауна
+- Если пользователь интересуется информацией не по документам, или в запросе отсутствует название файла → отвечай в свободном виде, исходя из своих имеющихся данных, не ищи информацию в документах.
+- Не используй теги <think> или </think>
+
+СТРАТЕГИЯ ПОИСКА:
+- Имена: query="найти: [имя] в документе"
+- Даты: query="найти дату: [событие] в документе"  
+- Числа: query="найти сумму/срок: [контекст] в документе"
+- Факты: query="найти: [контекст] в документе"
 
 Доступные инструменты:
 {tools}
+
 Имена инструментов: {tool_names}
-Генерировать верную информацию тебе помогут следующие принципы:
+
+ФОРМАТ РАБОТЫ:
 Question: {input}
-Thought: (твои мысли и рассуждения на тему того, что нужно сделать)
-Action: (название инструмента из списка)
-Action Input: (входные данные для инструмента в формате JSON)
-Observation: (результат выполнения инструмента)
-(ты можешь повторять Thought/Action/Action Input/Observation несколько раз для получения более четкого ответа)
+Thought: (что нужно сделать)
+Action: (инструмент)
+Action Input: (параметры в JSON)
+Observation: (результат)
+... (повторять при необходимости)
 Final Answer: (ответ пользователю)
 
 Few-shot пример:
+    1. Пример:
     Question: Что такое неустойка?
     Thought: Нужно найти определение в документе doc.docx
     Action: search_documents
@@ -401,11 +402,23 @@ Few-shot пример:
     Thought: Нашел ответ в документах
     Final Answer: Неустойка - денежная сумма, которую должник обязан уплатить кредитору в случае неисполнения обязательств (ст. 330 ГК РФ).
 
+    2. Пример:
+    Question: Кто подписал договор?
+    Thought: Нужно найти имя подписанта в документе
+    Action: search_documents
+    Action Input: {{"query": "подписант договора"}}
+    Observation: Иванов А.А.
+    Thought: Имя найдено
+    Final Answer: Иванов А.А.
+
+    3.Пример (не по документам):
+    Question: Что такое нейронные сети?
+    Thought: Вопрос не по документам, отвечаю из знаний
+    Final Answer: Нейронные сети — это...
+
 Начало работы:
     Question: {input}
     Thought: {agent_scratchpad}
-
-    
 """
 
     )
@@ -517,6 +530,17 @@ def get_session_history(session_id: str = None) -> List[Dict]:
     if session_id is None:
         session_id = current_session_id
     return session_memory.get_history(session_id)
+
+def add_uploaded_file_to_session(session_id: str, filename: str) -> bool:
+    """Привязать загруженный файл к сессии"""
+    return session_memory.add_uploaded_file(session_id, filename)
+
+
+def get_session_uploaded_files(session_id: str = None) -> List[str]:
+    """Получить список файлов, загруженных в сессии"""
+    if session_id is None:
+        session_id = current_session_id
+    return session_memory.get_uploaded_files(session_id)
 
 def safe_exit():
     os._exit(0)
