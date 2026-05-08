@@ -8,7 +8,7 @@ import shutil
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from block3_agent.agent import (
-    create_agent, 
+    create_agent,
     vector_memory, 
     list_files, 
     chat_with_session, 
@@ -17,19 +17,10 @@ from block3_agent.agent import (
     switch_session, 
     delete_session, 
     get_all_sessions, 
-    get_current_session_id
-    )
+    get_current_session_id,
+    add_uploaded_file_to_session
+)
 from shared.config import DATA_DIR, SESSIONS_DIR
-from shared.__init__ import SessionManager
-
-print("\n")
-print("Загрузка ReAct-агента...")
-print("\n")
-
-
-current_session_id=None
-session_manager = SessionManager(SESSIONS_DIR)
-
 
 try:
     agent = create_agent()
@@ -38,164 +29,19 @@ except Exception as e:
     print(f"Ошибка загрузки агента: {e}")
     traceback.print_exc()
     agent = None
-    
-def upload_file(file) -> tuple:
-            if file is None:
-                return "Файл не выбран", list_files()
-            
-            try:
-                filename = Path(file.name).name
-                dest_path = DATA_DIR / filename
-                shutil.copy2(file, dest_path)
-            
-                try:
 
-                    result = vector_memory.add_document(str(dest_path))
-                    status = f"{result}"
-                    current_id = get_current_session_id()
-                    if current_id and hasattr(session_manager, 'add_uploaded_file'):
-                        session_manager.add_uploaded_file(current_id, filename)
-        
-                    sessions_list = session_manager.get_all_sessions()
-                    sessions_choices = [(s['session_id'], f"{s['title']} ({s['message_count']} сообщ)") 
-                                        for s in sessions_list]
-                    return status, list_files()
-                
-                except:
-                    status = f"Файл сохранен: {filename}"
-                
-                return status, list_files()
-                
-            except Exception as e:
-                return f"Ошибка: {str(e)}", list_files()
-            
-def chat_only(message: str) -> str:
-    if not message or not message.strip():
-        return ""
-    
-    answer, _ = chat_with_session(message)
-    
-    return answer
-
-
-def chat(message, history):
-    if message is None:
-        return ""
-    
-    if isinstance(message, dict):
-        content = message.get("content", "")
-        if isinstance(content, list):
-            text_parts = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
-            user_text = "".join(text_parts)
-        else:
-            user_text = str(content)
-    elif isinstance(message, str):
-        user_text = message
-    elif isinstance(message, tuple):
-        user_text = str(message[0]) if message else ""
-    elif isinstance(message, list):
-        user_text= "\n".join(str(item) for item in message)
-    else:
-        user_text = str(message)
-    
-    user_text = user_text.strip()
-    
-    if not user_text:
-        return ""
-    
-    print(f"\nСообщение: {user_text[:100]}...")
-    
-    try:
-        answer = chat_only(user_text)
-        print(f"Тип answer из агента: {type(answer)}")
-        print(f"answer: {answer}")
-    
-        return answer
-    
-    except Exception as e:
-        print(f"Ошибка: {e}")
-        traceback.print_exc()
-        return f"Ошибка: {str(e)}"
-
-def refresh_files():
-    return list_files()
-
-def refresh_sessions():
-    sessions = get_all_sessions()
-    session_choices = [(s['session_id'], s['title']) for s in sessions]
-    current_id = get_current_session_id()
-    return gr.update(choices=session_choices, value=current_id)
-
-
-def on_new_session():
-    new_session()
-    sessions = get_all_sessions()
-    session_choices = [(s['session_id'], s['title']) for s in sessions]
-    current_id = get_current_session_id()
-    return "Новый диалог создан", gr.update(choices=session_choices, value=current_id)
-
-
-def on_switch_session(session_id):
+def load_session_history(session_id: str) -> list:
     if not session_id:
-        return "Сессия не выбрана", gr.update()
+        return []
     
-    print(f"\nПереключение на сессию: {session_id}")
-
-    sessions = get_all_sessions()
-    existing_ids = [s['session_id'] for s in sessions]
-    print(f"Существующие ID: {existing_ids}")
-   
-    real_id = None
-    if session_id not in existing_ids:
-        for s in sessions:
-            if s['title'] == session_id or session_id in s['title']:
-                real_id = s['session_id']
-                print(f"Найден ID: {real_id}")
-                break
-    
-    if real_id is None:
-        return f"Сессия '{session_id}' не найдена", gr.update()
-    
-    result = switch_session(real_id)
-    
-    
-    sessions = get_all_sessions()
-    session_choices = [(s['session_id'], s['title']) for s in sessions]
-    current_id = get_current_session_id()
-    info = get_session_info()
-    
-    return result, gr.update(choices=session_choices, value=current_id), info
-
-def on_delete_session(session_id): 
-    if not session_id:
-        return "Сессия не выбрана", gr.update()
-    
-    sessions = get_all_sessions()
-    existing_ids = [s['session_id'] for s in sessions]
-    
-    print(f"Существующие ID: {existing_ids}")
-   
-    if session_id not in existing_ids:
-        for s in sessions:
-            if s['title'] == session_id or session_id in s['title']:
-                session_id = s['session_id']
-                print(f"Найден ID: {session_id}")
-                break
-        else:
-            return f"Сессия '{session_id}' не найдена", gr.update()
-    
-    result = delete_session(session_id)
-    print(f"Результат удаления: {result}")
-    
-    sessions = get_all_sessions()
-    session_choices = [(s['session_id'], s['title']) for s in sessions]
-    current_id = get_current_session_id()
-    info = get_session_info()
-    
-    return result, gr.update(choices=session_choices, value=current_id)
+    messages = session_memory.get_history(session_id)
+    history = []
+    for msg in messages:
+        history.append({
+            "role": msg['role'],
+            "content": msg['content']
+        })
+    return history
 
 
 def get_session_info():
@@ -206,6 +52,8 @@ def get_session_info():
     history = session_memory.get_history(current_id)
     msg_count = len(history)
     
+    files_count = len(session_memory.get_uploaded_files(current_id))
+    
     sessions = get_all_sessions()
     title = "Новый диалог"
     for s in sessions:
@@ -215,18 +63,121 @@ def get_session_info():
     
     return f"""### Текущий диалог
 
-Название: {title}
-\nID: `{current_id}`
-\nСообщений: {msg_count}
-\nФайлов в сессии: {len(session_memory._sessions.get(current_id, []))}
+**Название:** {title}
+**ID:** `{current_id}`
+**Сообщений:** {msg_count}
+**Файлов в сессии:** {files_count}
 """
 
+def refresh_files():
+    return list_files()
+
+
+def respond(message, history):
+    if not message or not message.strip():
+        return "", history
+    
+    history.append({"role": "user", "content": message})
+    answer, _ = chat_with_session(message)
+    history.append({"role": "assistant", "content": answer})
+    
+    return "", history
+
+
+def upload_file(file):
+    if file is None:
+        return "Файл не выбран", refresh_files()
+    
+    try:
+        filename = Path(file.name).name
+        dest_path = DATA_DIR / filename
+        shutil.copy2(file, dest_path)
+        
+        result = vector_memory.add_document(str(dest_path))
+        status = f"{result}"
+        
+        current_id = get_current_session_id()
+        if current_id:
+            add_uploaded_file_to_session(current_id, filename)
+        
+        return status, refresh_files()
+        
+    except Exception as e:
+        return f"Ошибка: {str(e)}", refresh_files()
+
+
+def on_new_session():
+    new_session()
+    sessions = get_all_sessions()
+    session_choices = [(s['session_id'], s['title']) for s in sessions]
+    current_id = get_current_session_id()
+    
+    new_history = load_session_history(current_id)
+    info = get_session_info()
+    
+    return "Новый диалог создан", gr.update(choices=session_choices, value=current_id), info, new_history
+
+
+def on_switch_session(session_input):
+    if not session_input:
+        return "Сессия не выбрана", gr.update(), gr.update(), []
+
+    sessions = get_all_sessions()
+    real_id = None
+    for s in sessions:
+        if s['session_id'] == session_input or s['title'] == session_input:
+            real_id = s['session_id']
+            break
+    
+    if real_id is None:
+        return f"Сессия '{session_input}' не найдена", gr.update(), gr.update(), []
+    
+    result = switch_session(real_id)
+    sessions = get_all_sessions()
+    session_choices = [(s['session_id'], s['title']) for s in sessions]
+    current_id = get_current_session_id()
+    new_history = load_session_history(current_id)
+    info = get_session_info()
+    
+    return result, gr.update(choices=session_choices, value=current_id), info, new_history
+
+
+def on_delete_session(session_input):
+    if not session_input:
+        return "Сессия не выбрана", gr.update(), gr.update(), []
+
+    sessions = get_all_sessions()
+    real_id = None
+    for s in sessions:
+        if s['session_id'] == session_input or s['title'] == session_input:
+            real_id = s['session_id']
+            break
+    
+    if real_id is None:
+        return f"Сессия '{session_input}' не найдена", gr.update(), gr.update(), []
+    
+    result = delete_session(real_id)
+    sessions = get_all_sessions()
+    session_choices = [(s['session_id'], s['title']) for s in sessions]
+    current_id = get_current_session_id()
+    new_history = load_session_history(current_id) if current_id else []
+    info = get_session_info()
+    
+    return result, gr.update(choices=session_choices, value=current_id), info, new_history
+
+
+def on_refresh_sessions():
+    sessions = get_all_sessions()
+    session_choices = [(s['session_id'], s['title']) for s in sessions]
+    current_id = get_current_session_id()
+    info = get_session_info()
+    
+    return gr.update(choices=session_choices, value=current_id), info
 
 
 def create_interface():
     with gr.Blocks(title="RAG Ассистент") as demo:
         gr.Markdown("# RAG Ассистент")
-        gr.Markdown("Ассистент для работы с документами. Загружайте файлы и задавайте вопросы!")
         
         with gr.Row():
             with gr.Column(scale=1):
@@ -245,15 +196,15 @@ def create_interface():
                 
                 file_list_box = gr.Textbox(
                     label="Доступные файлы",
-                    value=list_files(),
+                    value=refresh_files(),
                     interactive=False,
                     lines=5
                 )
                 
                 refresh_btn = gr.Button("Обновить список файлов")
                 
-                gr.Markdown("### Сессии диалогов")
-
+                gr.Markdown("### Сессии")
+                
                 session_info = gr.Markdown(get_session_info())
                 
                 sessions = get_all_sessions()
@@ -264,8 +215,7 @@ def create_interface():
                     label="Все диалоги",
                     choices=session_choices,
                     interactive=True,
-                    value=current_id,
-                    allow_custom_value=True
+                    value=current_id
                 )
                 
                 with gr.Row():
@@ -277,7 +227,7 @@ def create_interface():
                 refresh_sessions_btn = gr.Button("Обновить список диалогов", size="sm")
                 
                 session_status = gr.Textbox(
-                    label="Статус сессии",
+                    label="Статус",
                     interactive=False,
                     value="Готов",
                     visible=True
@@ -287,76 +237,83 @@ def create_interface():
                 gr.Markdown(f"Папка с файлами: agent_data")
                 gr.Markdown(f"Папка с сессиями: sessions")
                 gr.Markdown("Поддерживаемые форматы: TXT, PDF, DOCX")
-
             
             with gr.Column(scale=3):
-                chatbot = gr.ChatInterface(
-                    fn=chat,
-                    title="Диалог с ассистентом",
-                    examples=[
-                        "Привет! Расскажи о себе.",
-                        "Какие файлы у меня загружены?",
-                        "Помоги найти информацию в документе",
-                        "Что такое RAG?"
-                    ],
+                gr.Markdown("### Диалог")
+                
+                chatbot = gr.Chatbot(
+                    height=500,
+                    show_label=False
                 )
-
+                
+                with gr.Row():
+                    msg = gr.Textbox(
+                        label="Сообщение",
+                        placeholder="Введите вопрос...",
+                        scale=4
+                    )
+                    send_btn = gr.Button("Отправить", scale=1, variant="primary")
+                
+                clear_btn = gr.Button("Очистить чат", variant="secondary", size="sm")
+        
         file_upload.upload(
-            upload_file,
-            inputs=[file_upload],
+            upload_file, 
+            inputs=[file_upload], 
             outputs=[upload_status, file_list_box]
-        )
+            )
         
         refresh_btn.click(
-            refresh_files,
-            inputs=[],
+            refresh_files, 
             outputs=[file_list_box]
-        )
+            )
+        
+        send_btn.click(
+            respond, 
+            inputs=[msg, chatbot], 
+            outputs=[msg, chatbot]
+            )
+        
+        msg.submit(
+            respond, 
+            inputs=[msg, chatbot], 
+            outputs=[msg, chatbot]
+            )
+        
+        clear_btn.click(
+            lambda: [], 
+            outputs=[chatbot]
+            )
         
         new_session_btn.click(
-            on_new_session,
-            inputs=[],
-            outputs=[session_status, session_dropdown]
-        ).then(
-            get_session_info,
-            inputs=[],
-            outputs=[session_info]
-        )
-
+            on_new_session, 
+            outputs=[session_status, session_dropdown, session_info, chatbot]
+            )
+        
         switch_btn.click(
-            on_switch_session,
-            inputs=[session_dropdown],
-            outputs=[session_status, session_dropdown, session_info]
-        ).then(
-            None,
-            js="() => { setTimeout(() => location.reload(), 500); }"
-        )
+            on_switch_session, 
+            inputs=[session_dropdown], 
+            outputs=[session_status, session_dropdown, session_info, chatbot]
+            )
         
         delete_btn.click(
-            on_delete_session,
-            inputs=[session_dropdown],
-            outputs=[session_status, session_dropdown]
-        ).then(
-            get_session_info,
-            inputs=[],
-            outputs=[session_info]
-        )
+            on_delete_session, 
+            inputs=[session_dropdown], 
+            outputs=[session_status, session_dropdown, session_info, chatbot]
+            )
         
         refresh_sessions_btn.click(
-            refresh_sessions,
-            inputs=[],
-            outputs=[session_dropdown]
-        ).then(
-            get_session_info,
-            inputs=[],
-            outputs=[session_info]
-        )
-        demo.load(
-            lambda: (gr.update(choices=[(s['session_id'], s['title']) for s in get_all_sessions()],
-                               value=get_current_session_id()),
-                     get_session_info()),
-            inputs=[],
+            on_refresh_sessions, 
             outputs=[session_dropdown, session_info]
+            )
+
+        demo.load(
+            lambda: (
+                refresh_files(),
+                gr.update(choices=[(s['session_id'], s['title']) for s in get_all_sessions()], value=get_current_session_id()),
+                get_session_info(),
+                load_session_history(get_current_session_id())
+            ),
+            outputs=[file_list_box, session_dropdown, session_info, chatbot]
         )
     
     return demo
@@ -364,17 +321,13 @@ def create_interface():
 
 def run_server(share=False, server_name="0.0.0.0", server_port=8080):
     demo = create_interface()
-    print(f"Доступ:")
-    print(f"   • http://localhost:{server_port}")
-    if share:
-        print(f"   • Публично: будет сгенерирована ссылка")
-        
+    print(f"\nДоступ: http://localhost:{server_port}")
     demo.launch(
-        server_name=server_name,
-        server_port=server_port,
-        share=share,
+        server_name=server_name, 
+        server_port=server_port, 
+        share=share, 
         inbrowser=False
-    )
+        )
 
 
 if __name__ == "__main__":
