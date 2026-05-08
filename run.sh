@@ -11,18 +11,23 @@ if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then
     hf download muranAI/DeepSeek-R1-0528-Qwen3-8B-GGUF $MODEL_FILE --local-dir $MODEL_DIR
 fi
 
+
+# Скачать эмбеддинговую модель, если нет
 EMBEDDING_DIR="models/multilingual-e5-base"
-if [ ! -d "$EMBEDDING_DIR" ]; then
+if python -c "
+from sentence_transformers import SentenceTransformer
+try:
+    SentenceTransformer('$EMBEDDING_DIR')
+except:
+    exit(1)
+" 2>/dev/null | grep -q "OK"; then
+else
     echo "Скачиваю модель эмбеддингов..."
+    rm -rf "$EMBEDDING_DIR"
     python -c "
 from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('intfloat/multilingual-e5-base')
-model.save('$EMBEDDING_DIR')
-print('Модель эмбеддингов сохранена локально')
+SentenceTransformer('intfloat/multilingual-e5-base').save('$EMBEDDING_DIR')
 "
-else
-    echo "Модель эмбеддингов уже есть"
 fi
-
 
 python3 llm/block4_web/app.py
