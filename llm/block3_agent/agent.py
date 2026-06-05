@@ -1,12 +1,8 @@
 import os
-import pathlib
-import shutil
 import sys
-import json
 import re
 from pathlib import Path
 from datetime import datetime, date
-import time
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
 import uuid
@@ -94,6 +90,56 @@ class VectorMemory(BaseVectorMemory):
         self.rag_llm = llm
         self.rag_benchmark = benchmark
         print("RAG компоненты установлены.")
+    
+    def search(self, query: str, k: int = 3, score_threshold: float = 0.5) -> str:
+        """
+        Обычный поиск без RAG
+        """
+        try:
+            clean_query = str(query).strip('"\'{}[]() ')
+            if not clean_query:
+                return "Пустой запрос"
+
+            query_embedding = self._get_embedding(clean_query, is_query=True)
+            results = self.docs_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=k * 2
+            )
+            
+            if not results['ids'][0]:
+                return f"По запросу '{clean_query}' ничего не найдено"
+            
+            formatted = []
+            for i in range(len(results['ids'][0])):
+                distance = results['distances'][0][i] if results['distances'] else 1.0
+                score = max(0, 1 - distance / 2)
+                
+                if score >= score_threshold:
+                    metadata = results['metadatas'][0][i]
+                    formatted.append({
+                        "text": results['documents'][0][i],
+                        "metadata": metadata,
+                        "relevance_score": score
+                    })
+            
+            formatted.sort(key=lambda x: x['relevance_score'], reverse=True)
+            formatted = formatted[:k]
+            
+            output = [f"Результаты поиска: '{clean_query}'\n"]
+            for i, r in enumerate(formatted, 1):
+                relevance = r['relevance_score'] * 100
+                filename = r['metadata'].get('filename', 'неизвестно')
+                chunk_idx = r['metadata'].get('chunk_index', 0)
+                total = r['metadata'].get('chunk_total', 1)
+                
+                text = r['text'][:700] + ("..." if len(r['text']) > 700 else "")
+                output.append(f"{i}. **[{relevance:.0f}%]** {filename} (фрагмент {chunk_idx+1}/{total})")
+                output.append(f"  {text}\n")
+            
+            return "\n".join(output)
+            
+        except Exception as e:
+            return f"Ошибка при поиске: {str(e)}"
 
     def search_with_rag(self, query: str) -> str:
         try:
@@ -351,14 +397,11 @@ def create_agent():
         execute_python       
     ] 
 
-    vector_add.return_direct = True      
-    vector_list.return_direct = False        
+    vector_add.return_direct = False     
+    vector_list.return_direct = False       
     search_documents.return_direct = False  
     write_file.return_direct = True        
     execute_python.return_direct = False
-
-    # for tool in tools:
-    #     tool.return_direct = False
 
     prompt = ChatPromptTemplate.from_template(
         """Ты - полезный AI-ассистент для работы с документами и файлами. Сегодня {date}.
@@ -367,6 +410,8 @@ def create_agent():
 - Следуй формату Thought → Action → Action Input → Observation
 - Не пиши комментарии после Action Input
 - Не повторяй успешные вызовы инструментов
+- Если Action успешно выполнен и ты получил Observation с результатом, НЕ повторяй тот же Action
+- После получения Observation переходи к следующему шагу или Final Answer
 - Если информация не найдена → выведи "информация не найдена"
 - Final Answer должен быть кратким, без JSON и маркдауна
 - Если пользователь интересуется информацией не по документам, или в запросе отсутствует название файла → отвечай в свободном виде, исходя из своих имеющихся данных, не ищи информацию в документах.
@@ -433,14 +478,44 @@ Few-shot пример:
         tools=tools,
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=5,
-        early_stopping_method="force"
+        max_iterations=5
     )
     
     return agent_executor
 
+def extract_last_observation(response: dict) -> str:
+    intermediate_steps = response.get('intermediate_steps', [])
+    if not intermediate_steps:
+        return ""
+    
+    for action, observation in reversed(intermediate_steps):
+        if observation and len(str(observation)) > 10:
+            obs_str = str(observation)
+            obs_str = re.sub(r'^{.*}$', '', obs_str)
+            if obs_str.strip():
+                return obs_str.strip()
+    
+    return ""
+
+def chat_simple(message: str) -> str:
+    global agent_executor
+    
+    if agent_executor is None:
+        raise RuntimeError("Агент не инициализирован.")
+    
+    response = agent_executor.invoke({
+        "input": message,
+        "date": date.today().strftime('%d.%m.%Y')
+    })
+    
+    return response['output']
+
 def chat_with_session(message: str, session_id: str = None) -> tuple:
     global current_session_id, agent_executor
+
+    if agent_executor is None:
+        agent_executor = create_agent()
+
     if session_id:
         current_session_id = session_id
     elif current_session_id is None:
@@ -461,6 +536,19 @@ def chat_with_session(message: str, session_id: str = None) -> tuple:
     })
     
     answer = response['output']
+
+    if not answer or len(answer) < 10 or "Action:" in answer or "Action Input:" in answer:
+            last_obs = extract_last_observation(response)
+            if last_obs:
+                if "•" in last_obs:
+                    answer = f"Документы в памяти:\n{last_obs}"
+                elif "Добавлено" in last_obs or "фрагментов" in last_obs:
+                    answer = last_obs
+                else:
+                    answer = f"Результат:\n{last_obs}"
+            else:
+                answer = "Не удалось получить ответ. Попробуйте переформулировать запрос."
+
     session_memory.add_message(current_session_id, "assistant", answer)
     
     return answer, current_session_id
@@ -521,10 +609,8 @@ def set_current_session_id(session_id: str):
         return True
     return False
 
-
 def get_all_sessions() -> List[Dict]:
     return session_memory.get_all_sessions()
-
 
 def get_session_history(session_id: str = None) -> List[Dict]:
     if session_id is None:
@@ -532,12 +618,10 @@ def get_session_history(session_id: str = None) -> List[Dict]:
     return session_memory.get_history(session_id)
 
 def add_uploaded_file_to_session(session_id: str, filename: str) -> bool:
-    """Привязать загруженный файл к сессии"""
     return session_memory.add_uploaded_file(session_id, filename)
 
 
 def get_session_uploaded_files(session_id: str = None) -> List[str]:
-    """Получить список файлов, загруженных в сессии"""
     if session_id is None:
         session_id = current_session_id
     return session_memory.get_uploaded_files(session_id)
@@ -590,7 +674,7 @@ def main():
                 continue
   
             print("\nОбработка запроса...")
-            answer = chat_with_session(query)
+            answer = chat_simple(query)
             print(f"\n{answer}")
 
         except KeyboardInterrupt:
