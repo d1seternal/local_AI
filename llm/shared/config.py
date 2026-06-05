@@ -7,7 +7,7 @@ MODEL_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "agent_data"
 MEMORY_PATH = PROJECT_ROOT / "agent_vector_store"
 SESSIONS_DIR = PROJECT_ROOT / "sessions"
-MODEL_PATH = MODEL_ROOT / "models" / "deepseek-r1-qwen3-8b-q4_k_m.gguf"
+MODEL_PATH = MODEL_ROOT / "models" / "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
 DOCS_COLLECTION = "documents"
 EMBEDDING_MODEL = MODEL_ROOT / "models" / "multilingual-e5-base"
 
@@ -22,8 +22,8 @@ CHUNK_OVERLAP = 50
 MODEL_CONTEXT = 8192
 MODEL_THREADS = 8
 MODEL_GPU_LAYERS = 0
-MODEL_TEMPERATURE = 0.5
-MODEL_TOP_P = 0.9
+MODEL_TEMPERATURE = 0.3
+MODEL_TOP_P = 0.8
 SEED = 42
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)

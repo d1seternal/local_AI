@@ -19,7 +19,7 @@ class SessionManager:
         
         print(f"Менеджер сессий инициализирован")
         print(f"Загружено {len(self._sessions)} сессий")
-    
+
     def _load_all(self):
         for file_path in self.storage_path.glob("*.json"):
             try:
@@ -117,12 +117,13 @@ class SessionManager:
         
         sessions.sort(key=lambda x: x['updated_at'], reverse=True)
         return sessions
-    
+
     def delete_session(self, session_id: str) -> bool:
         if session_id not in self._sessions:
             return False
         
         del self._sessions[session_id]
+
         file_path = self.storage_path / f"{session_id}.json"
         if file_path.exists():
             file_path.unlink()
@@ -148,6 +149,5 @@ class SessionManager:
             "total_files": total_files,
             "storage_path": str(self.storage_path)
         }
-
 
 __all__ = ['SessionManager']
